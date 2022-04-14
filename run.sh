@@ -7,7 +7,7 @@ read -p "batchsize: " batchsize
 read -p "epochs: " epochs
 echo Generate Random Weights
 
-python generate_init_weights.py "69" "./common_models/random_weights" "10,100,100"
+python generate_init_weights.py "69" "./common_models/random_weights" "10,100,1000"
 echo Completed
 
 cd ./Early-Bird-Tickets

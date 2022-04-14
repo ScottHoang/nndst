@@ -15,9 +15,9 @@ if __name__ == "__main__":
     os.makedirs(dst, exist_ok=True)
     num_classes = [int(i) for i in num_classes.split(",")]
 
-    for name, fn in CM.models.items():
+    for model_name, fn in CM.models.items():
         for n in num_classes:
-            name = f"{name}_{n}.pth.tar"
+            name = f"{model_name}_{n}.pth.tar"
             path = os.path.join(dst, name)
             model = init(fn(pretrained=False, num_classes=n))
             torch.save(model.state_dict(), path)
