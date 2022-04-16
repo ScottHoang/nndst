@@ -141,6 +141,7 @@ def main(src_dir, tgt_dir, model_name, num_classes, sparsity, is_eb):
 
 if __name__ == "__main__":
     _, src_dir, tgt_dir, sparsity, is_eb = sys.argv
+    is_eb = int(is_eb)
     sparsity = float(sparsity)
     assert osp.isdir(src_dir)
     num_classes = {'cifar10': 10, 'cifar100': 100, 'imagenet': 1000}
