@@ -26,7 +26,7 @@ bash run.sh
 
 #### Sample prompts
 * "Cuda: " 6
-* "Dataset: " cifar10, cifar1000
+* "Dataset: " cifar10, cifar100
 * "Models: " resnet18 resnet34 resnet50 vgg16
 * "batchsize: " 512
 * "Epochs: " 100
