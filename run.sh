@@ -5,9 +5,12 @@ read -p "Dataset: " dataset
 read -p "Models: " models
 read -p "batchsize: " batchsize
 read -p "epochs: " epochs
+read -p "seed: " seed
+read -p "sparsity: " sparsity
+read -p "output graph dir: " dir
 echo Generate Random Weights
 
-python generate_init_weights.py "69" "./common_models/random_weights" "10,100,1000"
+python generate_init_weights.py $seed "./common_models/random_weights" "10,100,1000"
 echo Completed
 
 cd ./Early-Bird-Tickets
@@ -27,7 +30,8 @@ do
       --test-batch-size 256 \
       --save ./EB/$d/$model \
       --momentum 0.9 \
-      --sparsity-regularization
+      --sparsity-regularization \
+      --seed $seed
         done
 done
 
@@ -43,9 +47,15 @@ CUDA_VISIBLE_DEVICES=$cuda python3 main_EDST.py --sparse --model $model --data $
     --decay-schedule constant --seed 17 --epochs-explo 0 \
     --model-num 10 \
     --sparse-init ERK \
+    --density $sparsity \
     --update-frequency 1000 --batch-size $batchsize --death-rate 0.5 --large-death-rate 0.8 \
-    --growth gradient --death magnitude --redistribution none --epochs $batchsize --density 0.2
+    --growth gradient --death magnitude --redistribution none --epochs $epochs \
+    --seed $seed
 done
 done
 
 cd ../
+
+python generate_graphs.py "./Early-Bird-Tickets/EB" "$dir/EB/" "$sparsity" "1"
+
+python generate_graphs.py "./FreeTickets/results/" "$dir/FreeTickets/" "$sparsity" "0"

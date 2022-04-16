@@ -1,6 +1,9 @@
 __pycache__/
 */EB/*
 */data.cifar10/
+*/data.cifar100/
 */_dataset/*
 */random_weights/*
 */.idea/*
+*/logs/*
+*/results/*

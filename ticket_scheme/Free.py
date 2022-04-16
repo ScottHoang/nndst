@@ -5,7 +5,6 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
 
 
 def add_sparse_args(parser):
@@ -64,329 +63,16 @@ def add_sparse_args(parser):
         help='how many iterations to train between parameter exploration')
 
 
-class CosineDecay(object):
-
-    def __init__(self, death_rate, T_max, eta_min=0.005, last_epoch=-1):
-        self.sgd = optim.SGD(torch.nn.ParameterList(
-            [torch.nn.Parameter(torch.zeros(1))]),
-                             lr=death_rate)
-        self.cosine_stepper = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.sgd, T_max, eta_min, last_epoch)
-
-    def step(self):
-        self.cosine_stepper.step()
-
-    def get_dr(self):
-        return self.sgd.param_groups[0]['lr']
-
-
-class LinearDecay(object):
-
-    def __init__(self, death_rate, factor=0.99, frequency=600):
-        self.factor = factor
-        self.steps = 0
-        self.frequency = frequency
-
-    def step(self):
-        self.steps += 1
-
-    def get_dr(self, death_rate):
-        if self.steps > 0 and self.steps % self.frequency == 0:
-            return death_rate * self.factor
-        else:
-            return death_rate
-
-
 class Masking(object):
 
     def __init__(self,
-                 optimizer,
                  death_rate=0.3,
                  growth_death_ratio=1.0,
                  death_rate_decay=None,
                  death_mode='magnitude',
                  growth_mode='gradient',
-                 redistribution_mode='none',
-                 args=None,
-                 train_loader=None,
-                 device=None):
-        growth_modes = ['random', 'momentum', 'momentum_neuron', 'gradient']
-        if growth_mode not in growth_modes:
-            print('Growth mode: {0} not supported!'.format(growth_mode))
-            print('Supported modes are:', str(growth_modes))
-
-        self.args = args
-        self.loader = train_loader
-        self.device = torch.device("cuda")
-        self.growth_mode = growth_mode
-        self.death_mode = death_mode
-        self.growth_death_ratio = growth_death_ratio
-        self.redistribution_mode = redistribution_mode
-        self.death_rate_decay = death_rate_decay
-        self.PF_rate = args.PF_rate
-
-        self.death_funcs = {}
-        self.death_funcs['magnitude'] = self.magnitude_death
-        self.death_funcs['SET'] = self.magnitude_and_negativity_death
-        self.death_funcs['threshold'] = self.threshold_death
-
-        self.growth_funcs = {}
-        self.growth_funcs['random'] = self.random_growth
-        self.growth_funcs['momentum'] = self.momentum_growth
-        self.growth_funcs['momentum_neuron'] = self.momentum_neuron_growth
-
-        self.masks = {}
-        self.nonzero_masks = {}
-        self.new_masks = {}
-        self.pre_tensor = {}
-        self.pruning_rate = {}
-        self.modules = []
-        self.names = []
-        self.optimizer = optimizer
-
-        self.adjusted_growth = 0
-        self.adjustments = []
-        self.baseline_nonzero = None
-        self.name2baseline_nonzero = {}
-
-        # stats
-        self.name2variance = {}
-        self.name2zeros = {}
-        self.name2nonzeros = {}
-        self.total_variance = 0
-        self.total_removed = 0
-        self.total_zero = 0
-        self.total_nonzero = 0
-        self.death_rate = death_rate
-        self.name2death_rate = {}
-        self.steps = 0
-
-        # if fix, then we do not explore the sparse connectivity
-        if self.args.fix: self.prune_every_k_steps = None
-        else: self.prune_every_k_steps = self.args.update_frequency
-
-    def step(self):
-        self.steps += 1
-        self.optimizer.step()
-        self.apply_mask()
-        self.death_rate_decay.step()
-        if self.args.decay_schedule == 'cosine':
-            self.death_rate = self.death_rate_decay.get_dr()
-        elif self.args.decay_schedule == 'constant':
-            self.death_rate = self.args.death_rate
-
-        if self.prune_every_k_steps is not None:
-            if self.steps % self.prune_every_k_steps == 0:
-                self.truncate_weights(self.args.death_rate)
-                self.print_nonzero_counts()
-
-    def init(self, mode='ERK', density=0.05, erk_power_scale=1.0):
-        self.density = density
-        if mode == 'pruning':
-            print('initialize by pruning')
-            weight_abs = []
-            for module in self.modules:
-                for name, weight in module.named_parameters():
-                    if name not in self.masks: continue
-                    weight_abs.append(torch.abs(weight))
-
-            # Gather all scores in a single vector and normalise
-            all_scores = torch.cat([torch.flatten(x) for x in weight_abs])
-            num_params_to_keep = int(len(all_scores) * (1 - self.PF_rate))
-
-            threshold, _ = torch.topk(all_scores,
-                                      num_params_to_keep,
-                                      sorted=True)
-            acceptable_score = threshold[-1]
-
-            for module in self.modules:
-                for name, weight in module.named_parameters():
-                    if name not in self.masks: continue
-                    self.masks[name] = ((torch.abs(weight)) >=
-                                        acceptable_score).float()
-
-        elif mode == 'resume':
-            # Initializes the mask according to the weights
-            # which are currently zero-valued. This is required
-            # if you want to resume a sparse model but did not
-            # save the mask.
-            print('initialize by resume')
-            self.baseline_nonzero = 0
-            for module in self.modules:
-                for name, weight in module.named_parameters():
-                    if name not in self.masks: continue
-                    print((weight != 0.0).sum().item() / weight.numel())
-                    self.masks[name][:] = (weight != 0.0).float().data.cuda()
-                    self.baseline_nonzero += weight.numel() * density
-            self.apply_mask()
-
-            # for module in self.modules:
-            #     for name, weight in module.named_parameters():
-            #         if name not in self.masks: continue
-            #         print(f"The sparsity of layer {name} is {(self.masks[name]==0).sum()/self.masks[name].numel()}")
-
-        elif mode == 'uniform':
-            index = 0
-            for module in self.modules:
-                for name, weight in module.named_parameters():
-                    name_cur = name + '_' + str(index)
-                    index += 1
-                    if name_cur not in self.masks: continue
-                    self.masks[name_cur][:] = (torch.rand(
-                        weight.shape) < density).float().data.cuda()  #lsw
-                    # self.masks[name_cur][:] = (torch.rand(weight.shape) < density).float().data #lsw
-            self.apply_mask()
-
-        elif mode == 'ERK':
-            print('initialize by fixed_ERK')
-            total_params = 0
-            for name, weight in self.masks.items():
-                total_params += weight.numel()
-            is_epsilon_valid = False
-            # # The following loop will terminate worst case when all masks are in the
-            # custom_sparsity_map. This should probably never happen though, since once
-            # we have a single variable or more with the same constant, we have a valid
-            # epsilon. Note that for each iteration we add at least one variable to the
-            # custom_sparsity_map and therefore this while loop should terminate.
-            dense_layers = set()
-            while not is_epsilon_valid:
-                # We will start with all layers and try to find right epsilon. However if
-                # any probablity exceeds 1, we will make that layer dense and repeat the
-                # process (finding epsilon) with the non-dense layers.
-                # We want the total number of connections to be the same. Let say we have
-                # for layers with N_1, ..., N_4 parameters each. Let say after some
-                # iterations probability of some dense layers (3, 4) exceeded 1 and
-                # therefore we added them to the dense_layers set. Those layers will not
-                # scale with erdos_renyi, however we need to count them so that target
-                # paratemeter count is achieved. See below.
-                # eps * (p_1 * N_1 + p_2 * N_2) + (N_3 + N_4) =
-                #    (1 - default_sparsity) * (N_1 + N_2 + N_3 + N_4)
-                # eps * (p_1 * N_1 + p_2 * N_2) =
-                #    (1 - default_sparsity) * (N_1 + N_2) - default_sparsity * (N_3 + N_4)
-                # eps = rhs / (\sum_i p_i * N_i) = rhs / divisor.
-
-                divisor = 0
-                rhs = 0
-                raw_probabilities = {}
-                for name, mask in self.masks.items():
-                    n_param = np.prod(mask.shape)
-                    n_zeros = n_param * (1 - density)
-                    n_ones = n_param * density
-
-                    if name in dense_layers:
-                        # See `- default_sparsity * (N_3 + N_4)` part of the equation above.
-                        rhs -= n_zeros
-
-                    else:
-                        # Corresponds to `(1 - default_sparsity) * (N_1 + N_2)` part of the
-                        # equation above.
-                        rhs += n_ones
-                        # Erdos-Renyi probability: epsilon * (n_in + n_out / n_in * n_out).
-                        raw_probabilities[name] = (
-                            np.sum(mask.shape) /
-                            np.prod(mask.shape))**erk_power_scale
-                        # Note that raw_probabilities[mask] * n_param gives the individual
-                        # elements of the divisor.
-                        divisor += raw_probabilities[name] * n_param
-                # By multipliying individual probabilites with epsilon, we should get the
-                # number of parameters per layer correctly.
-                epsilon = rhs / divisor
-                # If epsilon * raw_probabilities[mask.name] > 1. We set the sparsities of that
-                # mask to 0., so they become part of dense_layers sets.
-                max_prob = np.max(list(raw_probabilities.values()))
-                max_prob_one = max_prob * epsilon
-                if max_prob_one > 1:
-                    is_epsilon_valid = False
-                    for mask_name, mask_raw_prob in raw_probabilities.items():
-                        if mask_raw_prob == max_prob:
-                            print(
-                                f"Sparsity of var:{mask_name} had to be set to 0."
-                            )
-                            dense_layers.add(mask_name)
-                else:
-                    is_epsilon_valid = True
-
-            self.density_dict = {}
-            total_nonzero = 0.0
-            # With the valid epsilon, we can set sparsities of the remaning layers.
-            for name, mask in self.masks.items():
-                n_param = np.prod(mask.shape)
-                if name in dense_layers:
-                    self.density_dict[name] = 1.0
-                else:
-                    probability_one = epsilon * raw_probabilities[name]
-                    self.density_dict[name] = probability_one
-                print(
-                    f"layer: {name}, shape: {mask.shape}, density: {self.density_dict[name]}"
-                )
-                self.masks[name][:] = (torch.rand(
-                    mask.shape) < self.density_dict[name]).float().data.cuda()
-
-                total_nonzero += self.density_dict[name] * mask.numel()
-            print(f"Overall sparsity {total_nonzero / total_params}")
-
-        elif mode == 'ER':
-            print('initialize by SET')
-            # initialization used in sparse evolutionary training
-            total_params = 0
-            index = 0
-            for module in self.modules:
-                for name, weight in module.named_parameters():
-                    name_cur = name + '_' + str(index)
-                    index += 1
-                    if name_cur not in self.masks: continue
-                    total_params += weight.numel()
-
-            target_params = total_params * density
-            tolerance = 5
-            current_params = 0
-            new_nonzeros = 0
-            epsilon = 10.0
-            growth_factor = 0.5
-            # searching for the right epsilon for a specific sparsity level
-            while not ((current_params + tolerance > target_params) and
-                       (current_params - tolerance < target_params)):
-                new_nonzeros = 0.0
-                index = 0
-                for name, weight in module.named_parameters():
-                    name_cur = name + '_' + str(index)
-                    index += 1
-                    if name_cur not in self.masks: continue
-                    # original SET formulation for fully connected weights: num_weights = epsilon * (noRows + noCols)
-                    # we adapt the same formula for convolutional weights
-                    growth = epsilon * sum(weight.shape)
-                    new_nonzeros += growth
-                current_params = new_nonzeros
-                if current_params > target_params:
-                    epsilon *= 1.0 - growth_factor
-                else:
-                    epsilon *= 1.0 + growth_factor
-                growth_factor *= 0.95
-
-            index = 0
-            for name, weight in module.named_parameters():
-                name_cur = name + '_' + str(index)
-                index += 1
-                if name_cur not in self.masks: continue
-                growth = epsilon * sum(weight.shape)
-                prob = growth / np.prod(weight.shape)
-                self.masks[name_cur][:] = (torch.rand(weight.shape) <
-                                           prob).float().data.cuda()  #lsw
-                # self.masks[name_cur][:] = (torch.rand(weight.shape) < prob).float().data
-
-        self.apply_mask()
-
-        total_size = 0
-        for name, weight in self.masks.items():
-            total_size += weight.numel()
-        print('Total Model parameters:', total_size)
-
-        sparse_size = 0
-        for name, weight in self.masks.items():
-            sparse_size += (weight != 0).sum().int().item()
-
-        print('Total parameters under sparsity level of {0}: {1}'.format(
-            density, sparse_size / total_size))
+                 redistribution_mode='none'):
+        pass
 
     def add_module(self, module, density, sparse_init='ER'):
         self.sparse_init = sparse_init
@@ -453,24 +139,16 @@ class Masking(object):
                     # if 'momentum_buffer' in self.optimizer.state[tensor]:
                     #     self.optimizer.state[tensor]['momentum_buffer'] = self.optimizer.state[tensor]['momentum_buffer']*self.masks[name]
 
-    def truncate_weights(self, pruning_rate):
+    def truncate_weights(self, model, pruning_rate):
         print('dynamic sparse training')
+        self.modules = [model]
         for module in self.modules:
             for name, weight in module.named_parameters():
-                if name not in self.masks: continue
-                mask = self.masks[name]
+                if 'bn' in name or 'bias' in name: continue
 
                 # death
-                if self.death_mode == 'magnitude':
-                    new_mask = self.magnitude_death(mask, weight, name,
+                new_mask = self.magnitude_death(mask, weight, name,
                                                     pruning_rate)
-                elif self.death_mode == 'SET':
-                    new_mask = self.magnitude_and_negativity_death(
-                        mask, weight, name)
-                elif self.death_mode == 'Taylor_FO':
-                    new_mask = self.taylor_FO(mask, weight, name)
-                elif self.death_mode == 'threshold':
-                    new_mask = self.threshold_death(mask, weight, name)
 
                 self.pruning_rate[name] = int(self.masks[name].sum().item() -
                                               new_mask.sum().item())
@@ -540,10 +218,6 @@ class Masking(object):
 
         print('Total parameters under sparsity level of {0}: {1}'.format(
             self.args.density, sparse_size / total_size))
-
-    '''
-                    DEATH
-    '''
 
     def threshold_death(self, mask, weight, name):
         return (torch.abs(weight.data) > self.threshold)

@@ -1,31 +1,35 @@
 from __future__ import print_function
-import sys
+
+import argparse
+import copy
+import hashlib
+import logging
 import os
 import shutil
+import sys
 import time
-import argparse
-import logging
-import hashlib
-import copy
+import warnings
+
 import numpy as np
+import sparselearning
 import torch
+import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import torch.optim as optim
-import torch.backends.cudnn as cudnn
-
-import sparselearning
-from sparselearning.common_models.models import resnet18, resnet34, resnet50, vgg16
+from sparselearning.common_models.models import models as MODELS
 from sparselearning.common_models.utils import add_log_softmax
-from sparselearning.core import Masking, CosineDecay, LinearDecay
-#from sparselearning.models import AlexNet, VGG16, LeNet_300_100, LeNet_5_Caffe, WideResNet, MLP_CIFAR10
-from sparselearning.resnet_imagenet import ResNet, BasicBlock
-from sparselearning.resnet50 import ResNet as ResNet50
+from sparselearning.core import CosineDecay
+from sparselearning.core import LinearDecay
+from sparselearning.core import Masking
 from sparselearning.resnet50 import Bottleneck
+from sparselearning.resnet50 import ResNet as ResNet50
+from sparselearning.resnet_imagenet import BasicBlock
+from sparselearning.resnet_imagenet import ResNet
+from sparselearning.utils import get_cifar100_dataloaders
+from sparselearning.utils import get_cifar10_dataloaders
+from sparselearning.utils import get_mnist_dataloaders
 from sparselearning.vgg import vgg
-
-from sparselearning.utils import get_mnist_dataloaders, get_cifar10_dataloaders, get_cifar100_dataloaders
-
-import warnings
+#from sparselearning.models import AlexNet, VGG16, LeNet_300_100, LeNet_5_Caffe, WideResNet, MLP_CIFAR10
 warnings.filterwarnings("ignore", category=UserWarning)
 cudnn.benchmark = True
 cudnn.deterministic = True
@@ -35,6 +39,8 @@ if not os.path.exists('./logs'): os.mkdir('./logs')
 logger = None
 
 models = {}
+for name, fn in MODELS.items():
+    models[name] = (fn, [])
 #models['MLPCIFAR10'] = (MLP_CIFAR10,[])
 #models['lenet5'] = (LeNet_5_Caffe,[])
 #models['lenet300-100'] = (LeNet_300_100,[])
@@ -48,14 +54,12 @@ models = {}
 #models['wrn-22-8'] = (WideResNet, [22, 8, 10, 0.0])
 #models['wrn-16-8'] = (WideResNet, [16, 8, 10, 0.0])
 #models['wrn-16-10'] = (WideResNet, [16, 10, 10, 0.0])
-models['resnet18'] = (resnet18, [])
-models['resnet34'] = (resnet34, [])
-models['resnet50'] = (resnet50, [])
-models['vgg16'] = (vgg16, [])
+
 
 def save_checkpoint(state, filename='checkpoint.pth.tar'):
     print("SAVING")
     torch.save(state, filename)
+
 
 def minestone_calculation(args):
     individual_epoch = (args.epochs - args.epochs_explo) / args.model_num
@@ -87,14 +91,18 @@ def setup_logger(args):
     args_copy.log_interval = 1
     args_copy.seed = 0
 
-    log_path = './logs/{0}_{1}_{2}.log'.format(args.model, args.density, hashlib.md5(str(args_copy).encode('utf-8')).hexdigest()[:8])
+    log_path = './logs/{0}_{1}_{2}.log'.format(
+        args.model, args.density,
+        hashlib.md5(str(args_copy).encode('utf-8')).hexdigest()[:8])
 
     logger.setLevel(logging.INFO)
-    formatter = logging.Formatter(fmt='%(asctime)s: %(message)s', datefmt='%H:%M:%S')
+    formatter = logging.Formatter(fmt='%(asctime)s: %(message)s',
+                                  datefmt='%H:%M:%S')
 
     fh = logging.FileHandler(log_path)
     fh.setFormatter(formatter)
     logger.addHandler(fh)
+
 
 def print_and_log(msg):
     global logger
@@ -117,7 +125,8 @@ def train(args, model, device, train_loader, optimizer, epoch, mask=None):
 
         loss = F.nll_loss(output, target)
         train_loss += loss.item()
-        pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+        pred = output.argmax(
+            dim=1, keepdim=True)  # get the index of the max log-probability
         correct += pred.eq(target.view_as(pred)).sum().item()
         n += target.shape[0]
 
@@ -130,14 +139,18 @@ def train(args, model, device, train_loader, optimizer, epoch, mask=None):
         else: optimizer.step()
 
         if batch_idx % args.log_interval == 0:
-            print_and_log('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Accuracy: {}/{} ({:.3f}% '.format(
-                epoch, batch_idx * len(data), len(train_loader)*args.batch_size,
-                100. * batch_idx / len(train_loader), loss.item(), correct, n, 100. * correct / float(n)))
+            print_and_log(
+                'Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f} Accuracy: {}/{} ({:.3f}% '
+                .format(epoch, batch_idx * len(data),
+                        len(train_loader) * args.batch_size,
+                        100. * batch_idx / len(train_loader), loss.item(),
+                        correct, n, 100. * correct / float(n)))
 
+    print_and_log(
+        '\n{}: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
+            'Training summary', train_loss / batch_idx, correct, n,
+            100. * correct / float(n)))
 
-    print_and_log('\n{}: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
-        'Training summary' ,
-        train_loss/batch_idx, correct, n, 100. * correct / float(n)))
 
 def evaluate(args, model, device, test_loader, is_test_set=False):
     model.eval()
@@ -150,16 +163,20 @@ def evaluate(args, model, device, test_loader, is_test_set=False):
             if args.fp16: data = data.half()
             model.t = target
             output = model(data)
-            test_loss += F.nll_loss(output, target, reduction='sum').item() # sum up batch loss
-            pred = output.argmax(dim=1, keepdim=True) # get the index of the max log-probability
+            test_loss += F.nll_loss(
+                output, target, reduction='sum').item()  # sum up batch loss
+            pred = output.argmax(
+                dim=1,
+                keepdim=True)  # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
             n += target.shape[0]
 
     test_loss /= float(n)
 
-    print_and_log('\n{}: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
-        'Test evaluation' if is_test_set else 'Evaluation',
-        test_loss, correct, n, 100. * correct / float(n)))
+    print_and_log(
+        '\n{}: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
+            'Test evaluation' if is_test_set else 'Evaluation', test_loss,
+            correct, n, 100. * correct / float(n)))
     return correct / float(n)
 
 
@@ -167,53 +184,124 @@ def main():
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
 
-    parser.add_argument('--batch-size', type=int, default=128, metavar='N',
+    parser.add_argument('--batch-size',
+                        type=int,
+                        default=128,
+                        metavar='N',
                         help='input batch size for training (default: 100)')
-    parser.add_argument('--test-batch-size', type=int, default=128, metavar='N',
+    parser.add_argument('--test-batch-size',
+                        type=int,
+                        default=128,
+                        metavar='N',
                         help='input batch size for testing (default: 100)')
-    parser.add_argument('--epochs', type=int, default=320, metavar='N',
+    parser.add_argument('--epochs',
+                        type=int,
+                        default=320,
+                        metavar='N',
                         help='number of epochs to train (default: 100)')
-    parser.add_argument('--epochs-explo', type=int, default=150, metavar='N',
+    parser.add_argument('--epochs-explo',
+                        type=int,
+                        default=150,
+                        metavar='N',
                         help='training time of exploration phase')
-    parser.add_argument('--model-num', type=int, default=3,
+    parser.add_argument('--model-num',
+                        type=int,
+                        default=3,
                         help='How many subnetworks to produce, default=3')
-    parser.add_argument('--lr', type=float, default=0.1, metavar='LR',
+    parser.add_argument('--lr',
+                        type=float,
+                        default=0.1,
+                        metavar='LR',
                         help='learning rate (default: 0.1)')
-    parser.add_argument('--momentum', type=float, default=0.9, metavar='M',
+    parser.add_argument('--momentum',
+                        type=float,
+                        default=0.9,
+                        metavar='M',
                         help='SGD momentum (default: 0.9)')
-    parser.add_argument('--no-cuda', action='store_true', default=False,
+    parser.add_argument('--no-cuda',
+                        action='store_true',
+                        default=False,
                         help='disables CUDA training')
-    parser.add_argument('--seed', type=int, default=17, metavar='S', help='random seed (default: 17)')
-    parser.add_argument('--log-interval', type=int, default=100, metavar='N',
-                        help='how many batches to wait before logging training status')
-    parser.add_argument('--optimizer', type=str, default='sgd', help='The optimizer to use. Default: sgd. Options: sgd, adam.')
+    parser.add_argument('--seed',
+                        type=int,
+                        default=17,
+                        metavar='S',
+                        help='random seed (default: 17)')
+    parser.add_argument(
+        '--log-interval',
+        type=int,
+        default=100,
+        metavar='N',
+        help='how many batches to wait before logging training status')
+    parser.add_argument(
+        '--optimizer',
+        type=str,
+        default='sgd',
+        help='The optimizer to use. Default: sgd. Options: sgd, adam.')
     parser.add_argument('--data', type=str, default='mnist')
     parser.add_argument('--l1', type=float, default=0.0)
-    parser.add_argument('--fp16', action='store_true', help='Run in fp16 mode.')
+    parser.add_argument('--fp16',
+                        action='store_true',
+                        help='Run in fp16 mode.')
     parser.add_argument('--valid_split', type=float, default=0.1)
     parser.add_argument('--resume', type=str)
     parser.add_argument('--start-epoch', type=int, default=1)
     parser.add_argument('--model', type=str, default='')
     parser.add_argument('--l2', type=float, default=5e-4)
-    parser.add_argument('--iters', type=int, default=1, help='How many times the model should be run after each other. Default=1')
-    parser.add_argument('--save-features', action='store_true', help='Resumes a saved model and saves its feature data to disk for plotting.')
-    parser.add_argument('--bench', action='store_true', help='Enables the benchmarking of layers and estimates sparse speedups')
-    parser.add_argument('--max-threads', type=int, default=10, help='How many threads to use for data loading.')
-    parser.add_argument('--decay-schedule', type=str, default='cosine', help='The decay schedule for the pruning rate. Default: cosine. Choose from: cosine, linear.')
-    parser.add_argument('--nolrsche', action='store_true', default=False,
+    parser.add_argument(
+        '--iters',
+        type=int,
+        default=1,
+        help=
+        'How many times the model should be run after each other. Default=1')
+    parser.add_argument(
+        '--save-features',
+        action='store_true',
+        help=
+        'Resumes a saved model and saves its feature data to disk for plotting.'
+    )
+    parser.add_argument(
+        '--bench',
+        action='store_true',
+        help='Enables the benchmarking of layers and estimates sparse speedups'
+    )
+    parser.add_argument('--max-threads',
+                        type=int,
+                        default=10,
+                        help='How many threads to use for data loading.')
+    parser.add_argument(
+        '--decay-schedule',
+        type=str,
+        default='cosine',
+        help=
+        'The decay schedule for the pruning rate. Default: cosine. Choose from: cosine, linear.'
+    )
+    parser.add_argument('--nolrsche',
+                        action='store_true',
+                        default=False,
                         help='disable learning rate decay')
-    parser.add_argument('-j', '--workers', default=10, type=int, metavar='N',
+    parser.add_argument('-j',
+                        '--workers',
+                        default=10,
+                        type=int,
+                        metavar='N',
                         help='number of data loading workers (default: 10)')
-    parser.add_argument('--world-size', default=-1, type=int,
+    parser.add_argument('--world-size',
+                        default=-1,
+                        type=int,
                         help='number of nodes for distributed training')
-    parser.add_argument('--mgpu', action='store_true', help='Enable snip initialization. Default: True.')
+    parser.add_argument('--mgpu',
+                        action='store_true',
+                        help='Enable snip initialization. Default: True.')
     sparselearning.core.add_sparse_args(parser)
 
     args = parser.parse_args()
     setup_logger(args)
     print_and_log(args)
     minestone1, minestone2 = minestone_calculation(args)
-    print(f'learning rate recycle minestone1 is {minestone1} minestone2 is {minestone2}')
+    print(
+        f'learning rate recycle minestone1 is {minestone1} minestone2 is {minestone2}'
+    )
 
     if args.fp16:
         try:
@@ -226,22 +314,27 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
 
     print_and_log('\n\n')
-    print_and_log('='*80)
+    print_and_log('=' * 80)
     torch.manual_seed(args.seed)
     for i in range(args.iters):
-        print_and_log("\nIteration start: {0}/{1}\n".format(i+1, args.iters))
+        print_and_log("\nIteration start: {0}/{1}\n".format(i + 1, args.iters))
 
         if args.data == 'mnist':
-            train_loader, valid_loader, test_loader = get_mnist_dataloaders(args, validation_split=args.valid_split)
-            outputs=10
+            train_loader, valid_loader, test_loader = get_mnist_dataloaders(
+                args, validation_split=args.valid_split)
+            outputs = 10
         elif args.data == 'cifar10':
-            train_loader, valid_loader, test_loader = get_cifar10_dataloaders(args, args.valid_split, max_threads=args.max_threads)
+            train_loader, valid_loader, test_loader = get_cifar10_dataloaders(
+                args, args.valid_split, max_threads=args.max_threads)
             outputs = 10
         elif args.data == 'cifar100':
-            train_loader, valid_loader, test_loader = get_cifar100_dataloaders(args, args.valid_split, max_threads=args.max_threads)
+            train_loader, valid_loader, test_loader = get_cifar100_dataloaders(
+                args, args.valid_split, max_threads=args.max_threads)
             outputs = 100
         if args.model not in models:
-            print('You need to select an existing model via the --model argument. Available models include: ')
+            print(
+                'You need to select an existing model via the --model argument. Available models include: '
+            )
             for key in models:
                 print('\t{0}'.format(key))
             raise Exception('You need to select a model')
@@ -257,9 +350,9 @@ def main():
             print_and_log('=' * 60)
             print_and_log('Prune mode: {0}'.format(args.death))
             print_and_log('Growth mode: {0}'.format(args.growth))
-            print_and_log('Redistribution mode: {0}'.format(args.redistribution))
+            print_and_log('Redistribution mode: {0}'.format(
+                args.redistribution))
             print_and_log('=' * 60)
-
 
         if args.mgpu:
             print('Using multi gpus')
@@ -267,40 +360,58 @@ def main():
 
         optimizer = None
         if args.optimizer == 'sgd':
-            optimizer = optim.SGD(model.parameters(),lr=args.lr,momentum=args.momentum,weight_decay=args.l2)
+            optimizer = optim.SGD(model.parameters(),
+                                  lr=args.lr,
+                                  momentum=args.momentum,
+                                  weight_decay=args.l2)
         elif args.optimizer == 'adam':
-            optimizer = optim.Adam(model.parameters(),lr=args.lr,weight_decay=args.l2)
+            optimizer = optim.Adam(model.parameters(),
+                                   lr=args.lr,
+                                   weight_decay=args.l2)
         else:
             print('Unknown optimizer: {0}'.format(args.optimizer))
             raise Exception('Unknown optimizer.')
 
-
         if args.nolrsche:
             lr_scheduler = None
         else:
-            lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                                milestones=[int(args.epochs/2), int(args.epochs*3/4)], last_epoch=-1)
+            lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+                optimizer,
+                milestones=[int(args.epochs / 2),
+                            int(args.epochs * 3 / 4)],
+                last_epoch=-1)
 
         if args.fp16:
             print('FP16')
             optimizer = FP16_Optimizer(optimizer,
-                                       static_loss_scale = None,
-                                       dynamic_loss_scale = True,
-                                       dynamic_loss_args = {'init_scale': 2 ** 16})
+                                       static_loss_scale=None,
+                                       dynamic_loss_scale=True,
+                                       dynamic_loss_args={'init_scale': 2**16})
             model = model.half()
 
         mask = None
         if args.sparse:
-            decay = CosineDecay(args.death_rate, len(train_loader) * (args.epochs))
-            mask = Masking(optimizer,death_rate=args.death_rate, death_mode=args.death, death_rate_decay=decay, growth_mode=args.growth,
-                           redistribution_mode=args.redistribution, args=args)
-            mask.add_module(model, sparse_init=args.sparse_init, density=args.density)
+            decay = CosineDecay(args.death_rate,
+                                len(train_loader) * (args.epochs))
+            mask = Masking(optimizer,
+                           death_rate=args.death_rate,
+                           death_mode=args.death,
+                           death_rate_decay=decay,
+                           growth_mode=args.growth,
+                           redistribution_mode=args.redistribution,
+                           args=args)
+            mask.add_module(model,
+                            sparse_init=args.sparse_init,
+                            density=args.density)
 
         best_acc = 0.0
         for epoch in range(1, args.epochs + 1):
+            save_dir = os.path.join('results', args.data, args.model)
 
-            save_dir = 'results' + '/' + str(args.model) + '/' + str(args.data) + '/random' + '/seed' + str(args.seed) + '/density_' + str(
-                args.density) + '/' + 'EDST' + '/' +  'M=' + str(args.model_num)
+            # save_dir = 'results' + '/' + str(args.model) + '/' + str(
+            # args.data) + str(
+            # args.density) + '/' + 'EDST' + '/' + 'M=' + str(
+            # args.model_num)
 
             if not os.path.exists(save_dir): os.makedirs(save_dir)
 
@@ -317,18 +428,29 @@ def main():
                 print('Saving model')
                 best_acc = val_acc
                 if epoch > args.epochs_explo:
-                    save_checkpoint({
+                    save_checkpoint(
+                        {
+                            'epoch': epoch + 1,
+                            'state_dict': model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                        },
+                        filename=os.path.join(
+                            save_dir, 'model_%d.pth' %
+                            ((epoch - args.epochs_explo - 1) //
+                             args.individual_epoch)))
+
+            if epoch > args.epochs_explo:
+                save_checkpoint(
+                    {
                         'epoch': epoch + 1,
                         'state_dict': model.state_dict(),
                         'optimizer': optimizer.state_dict(),
-                    }, filename=os.path.join(save_dir, 'model_%d.pth' % ((epoch - args.epochs_explo - 1)//args.individual_epoch)))
-
-            if epoch > args.epochs_explo:
-                save_checkpoint({
-                             'epoch': epoch + 1,
-                             'state_dict': model.state_dict(),
-                             'optimizer': optimizer.state_dict(),
-                                }, filename=os.path.join(save_dir, 'ckp_%d.pth' % ((epoch - args.epochs_explo - 1)//args.individual_epoch)))
+                    },
+                    filename=os.path.join(
+                        save_dir,
+                        'ckpt%d_%d.pth' % (epoch,
+                                           (epoch - args.epochs_explo - 1) //
+                                           args.individual_epoch)))
 
             if epoch == args.epochs_explo:
                 optimizer.param_groups[0]['lr'] = 0.01
@@ -340,8 +462,11 @@ def main():
                     mask.truncate_weights(pruning_rate=args.large_death_rate)
                 optimizer.param_groups[0]['lr'] = 0.01
 
-            print_and_log('Current learning rate: {0}. Time taken for epoch: {1:.2f} seconds.\n'.format(optimizer.param_groups[0]['lr'], time.time() - t0))
+            print_and_log(
+                'Current learning rate: {0}. Time taken for epoch: {1:.2f} seconds.\n'
+                .format(optimizer.param_groups[0]['lr'],
+                        time.time() - t0))
 
 
 if __name__ == '__main__':
-   main()
+    main()

@@ -434,6 +434,7 @@ def test():
 
 
 class EarlyBird():
+
     def __init__(self, percent, epoch_keep=5):
         self.percent = percent
         self.epoch_keep = epoch_keep
