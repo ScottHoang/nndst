@@ -92,7 +92,7 @@ def main(src_dir, tgt_dir, model_name, num_classes, sparsity, is_eb):
             if is_eb:
                 mask = eb.pruning(net, sparsity)
             else:
-                mask = []
+                mask = torch.tensor([])
             ##############################
             channel_offset = 0
             mask_offset = 0
