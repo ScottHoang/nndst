@@ -58,28 +58,33 @@ def mlp_to_network(neuron_network, draw=False):
     return nx_new  #, node_list, nodes_num
 
 
-def conv_to_edges(weight, offset_in=0, offset_out=0, mask=None, mask2=None):
-    c_out, c_in, kW, kH = weight.size()
-    weight = weight.reshape(c_in, c_out, kW, kH).detach().cpu().numpy()
-    mask = mask if mask is not None else [1] * c_in
-    assert len(mask) == c_in
+def conv_to_edges(weight,
+                  offset_in=0,
+                  offset_out=0,
+                  input_mask=None,
+                  output_mask=None):
+
+    c_out, c_in, kH, kW = weight.size()
+    weight = weight.reshape(c_in, c_out, kW, kH).detach()
+    input_mask = input_mask if input_mask is not None else [1] * c_in
+    assert len(input_mask) == c_in
     ret = []
     offset_j = offset_in + c_in
     if offset_out > 0:
         offset_j = offset_out
 
     for i in range(c_in):
-        mask_i = mask[i]
+        mask_i = input_mask[i]
         for j in range(c_out):
-            if mask2 is not None:
-                mask_i *= mask2[j]
+            if output_mask is not None:
+                mask_i *= output_mask[j]
+            ret.append((i + offset_in, offset_j + j, {
+                'weights': weight[i, j].view(-1).tolist(),
+                'kW': kW,
+                'kH': kH,
+                "mask": mask_i
+            }))
 
-            if mask_i:
-                ret.append((i + offset_in, offset_j + j, {
-                    'weight': weight[i, j].mean((0, 1))
-                }))
-            else:
-                ret.append((i + offset_in, offset_j + j, {'weight': 0.0}))
     return ret, offset_j + c_out
 
 
@@ -94,15 +99,9 @@ def linear_to_edges(weight, offset=0, mask=None):
     for i in range(c_in):
         mask_i = mask[i]
         for j in range(c_out):
-            if mask_i:
-                ret.append((i + offset, offset + c_in + j, {
-                    'mask': mask_i,
-                    'weight': weight[i, j]
-                }))
-            else:
-                ret.append((i + offset, offset + c_in + j, {
-                    'mask': mask_i,
-                    'weight': 0.0,
-                }))
+            ret.append((i + offset, offset + c_in + j, {
+                'mask': mask_i,
+                'weights': weight[i, j].item()
+            }))
 
     return ret, c_in + offset + c_out

@@ -18,7 +18,7 @@ cd ./Early-Bird-Tickets
 for d in $dataset
 do
     for model in $models
-        do
+	do
       CUDA_VISIBLE_DEVICES=$cuda python main.py \
       --dataset $d \
       --arch $model \
@@ -32,19 +32,20 @@ do
       --momentum 0.9 \
       --sparsity-regularization \
       --seed $seed
-        done
+	done
 done
 
 
 cd ../
 
+epochs=$(($epochs + 150))
 cd ./FreeTickets
 for d in $dataset
 do
 for model in $models
 do
 CUDA_VISIBLE_DEVICES=$cuda python3 main_EDST.py --sparse --model $model --data $d --nolrsche \
-    --decay-schedule constant --seed 17 --epochs-explo 0 \
+    --decay-schedule constant --seed $seed --epochs-explo 150 \
     --model-num 10 \
     --sparse-init ERK \
     --density $sparsity \
@@ -56,6 +57,8 @@ done
 
 cd ../
 
-python generate_graphs.py "./Early-Bird-Tickets/EB" "$dir/EB/" "$sparsity" "1"
+eb_sparse=$((1.0 - $sparsity))
+
+python generate_graphs.py "./Early-Bird-Tickets/EB" "$dir/EB/" $eb_sparse "1"
 
 python generate_graphs.py "./FreeTickets/results/" "$dir/FreeTickets/" "$sparsity" "0"
