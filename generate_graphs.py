@@ -128,6 +128,7 @@ def main(src_dir, tgt_dir, model_name, num_classes, sparsity, is_structured):
 
 
 if __name__ == "__main__":
+    print(sys.argv)
     _, src_dir, tgt_dir, sparsity, structured = sys.argv
     structured = int(structured)
     sparsity = float(sparsity)

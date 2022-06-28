@@ -7,6 +7,7 @@ read -p "batchsize: " batchsize
 read -p "epochs: " epochs
 read -p "seed: " seed
 read -p "sparsity: " sparsity
+read -p "sparsity_percent: " sparsity_percent
 read -p "output graph dir: " dir
 echo Generate Random Weights
 
@@ -57,8 +58,8 @@ done
 
 cd ../
 
-eb_sparse=$((1.0 - $sparsity))
-
-python generate_graphs.py "./Early-Bird-Tickets/EB" "$dir/EB/" $eb_sparse "1"
-
-python generate_graphs.py "./FreeTickets/results/" "$dir/FreeTickets/" "$sparsity" "0"
+#eb_sparse=$((10 - sparsity_percent))
+#
+#python generate_graphs.py "./Early-Bird-Tickets/EB" "$dir/EB/" "0.$eb_sparse" "1"
+#
+#python generate_graphs.py "./FreeTickets/results/" "$dir/FreeTickets/" "$sparsity" "0"

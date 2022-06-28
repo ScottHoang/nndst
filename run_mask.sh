@@ -5,7 +5,7 @@ read -p "Model: " model
 read -p "batchsize: " batchsize
 read -p "epochs: " epochs
 read -p "seed: " seed
-read -p "masks: " masks
+read -p "masks: " masks # 5 15 25 35 45 55 65 75 85 95
 read -p "mask-type: " mask_type # iou/struct/unstruct
 
 cd ./Early-Bird-Tickets

@@ -20,7 +20,7 @@ bash run.sh
 * "Models: " -> select models to use (consult supported models in common_models/models.py)
 * "batchsize: " -> select batch-size to train
 * "Epochs: " -> select total epochs
-* "seed: " -> set seed for random generator (important as it will also be use to genreate shared random init weights values for both structured and unstructured)
+* "seed: " -> set seed for random generator (important as it will also be use to generate shared random init weights values for both structured and unstructured)
 * "sparsity: " -> set sparsity level for Dynamic sparsity training (0.1-1.0)
 * "ouput graph dir: " -> output dir to save networkx's gml graphs
 
@@ -34,3 +34,14 @@ bash run.sh
 * "sparsity: " 0.3
 * "ouput graph dir: " graphs/
 
+#### What to do
+1. Run the training of your model
+
+$ bash run.sh
+
+2. Run the generate_macro_mask.ipynb
+3. Run the mask training 
+
+$ run_mask.sh
+
+4. Run visualization.ipynb
