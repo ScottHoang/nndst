@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import math
+import os.path as osp
 
 import numpy as np
 import torch
@@ -179,6 +180,10 @@ class Masking(object):
             if self.steps % self.prune_every_k_steps == 0:
                 self.truncate_weights(self.args.death_rate)
                 self.print_nonzero_counts()
+                model = self.modules[0]
+                torch.save(
+                    model.state_dict(),
+                    osp.join(self.save_dir, f'{self.steps}_mask.pth.tar'))
 
     def init(self, mode='ERK', density=0.05, erk_power_scale=1.0):
         self.density = density

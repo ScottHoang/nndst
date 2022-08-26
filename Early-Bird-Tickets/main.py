@@ -2,6 +2,7 @@ from __future__ import print_function
 
 import argparse
 import os
+import os.path as osp
 import shutil
 import time
 
@@ -46,7 +47,7 @@ parser.add_argument('--test-batch-size',
                     help='input batch size for testing (default: 256)')
 parser.add_argument('--epochs',
                     type=int,
-                    default=160,
+                    default=250,
                     metavar='N',
                     help='number of epochs to train (default: 160)')
 parser.add_argument('--start-epoch',
@@ -128,6 +129,7 @@ parser.add_argument('--sparsity_gt',
                     default=0,
                     type=float,
                     help='sparsity controller')
+parser.add_argument('--sparsity', default=0, type=float, help='sparsity')
 # multi-gpus
 parser.add_argument('--gpu_ids',
                     type=str,
@@ -506,82 +508,23 @@ class EarlyBird():
             return False
 
 
-best_prec1 = 0.
-flag_30 = True
-flag_50 = True
-flag_70 = True
-early_bird_30 = EarlyBird(0.3)
-early_bird_50 = EarlyBird(0.5)
-early_bird_70 = EarlyBird(0.7)
+import json
+
+timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+mask = None
+save_dir = os.path.join('results', args.dataset, args.arch, 'masks', timestr)
+os.makedirs(save_dir, exist_ok=True)
+with open(os.path.join(save_dir, 'config.txt'), 'w') as f:
+    json.dump(args.__dict__, f, indent=2)
+early_bird = EarlyBird(float(args.sparsity))
 for epoch in range(args.start_epoch, args.epochs):
-    if early_bird_30.early_bird_emerge(model):
-        print("[early_bird_30] Find EB!!!!!!!!!, epoch: " + str(epoch))
-        if flag_30:
-            save_checkpoint(
-                {
-                    'epoch': epoch + 1,
-                    'state_dict': model.state_dict(),
-                    'best_prec1': best_prec1,
-                    'optimizer': optimizer.state_dict(),
-                },
-                is_best,
-                'EB-30-' + str(epoch + 1),
-                filepath=args.save)
-            flag_30 = False
-    if early_bird_50.early_bird_emerge(model):
-        print("[early_bird_50] Find EB!!!!!!!!!, epoch: " + str(epoch))
-        if flag_50:
-            save_checkpoint(
-                {
-                    'epoch': epoch + 1,
-                    'state_dict': model.state_dict(),
-                    'best_prec1': best_prec1,
-                    'optimizer': optimizer.state_dict(),
-                },
-                is_best,
-                'EB-50-' + str(epoch + 1),
-                filepath=args.save)
-            flag_50 = False
-    if early_bird_70.early_bird_emerge(model):
-        print("[early_bird_70] Find EB!!!!!!!!!, epoch: " + str(epoch))
-        if flag_70:
-            save_checkpoint(
-                {
-                    'epoch': epoch + 1,
-                    'state_dict': model.state_dict(),
-                    'best_prec1': best_prec1,
-                    'optimizer': optimizer.state_dict(),
-                },
-                is_best,
-                'EB-70-' + str(epoch + 1),
-                filepath=args.save)
-            flag_70 = False
+
+    if early_bird.early_bird_emerge(model):
+        path = osp.join(save_dir, f'{epoch}_mask_eb.pth')
+        torch.save(model.state_dict(), path)
+    if epoch % early_bird.epoch_keep == 0:
+        torch.save(model.state_dict(), osp.join(save_dir, f"{epoch}_mask.pth"))
     if epoch in args.schedule:
         for param_group in optimizer.param_groups:
             param_group['lr'] *= 0.1
     train(epoch)
-    prec1 = test()
-    history_score[epoch][2] = prec1
-    np.savetxt(os.path.join(args.save, 'record.txt'),
-               history_score,
-               fmt='%10.5f',
-               delimiter=',')
-    is_best = prec1 > best_prec1
-    best_prec1 = max(prec1, best_prec1)
-    save_checkpoint(
-        {
-            'epoch': epoch + 1,
-            'state_dict': model.state_dict(),
-            'best_prec1': best_prec1,
-            'optimizer': optimizer.state_dict(),
-        },
-        is_best,
-        epoch,
-        filepath=args.save)
-
-print("Best accuracy: " + str(best_prec1))
-history_score[-1][0] = best_prec1
-np.savetxt(os.path.join(args.save, 'record.txt'),
-           history_score,
-           fmt='%10.5f',
-           delimiter=',')

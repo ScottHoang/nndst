@@ -63,7 +63,6 @@ def resolve(args, kwargs):
 
 def try_load_random(model, path):
     if os.path.isfile(path):
-        print("load random weights")
         model.load_state_dict(torch.load(path))
     else:
         print("fail to load random weights")
