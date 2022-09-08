@@ -8,7 +8,7 @@ read -p "batchsize: " batchsize
 read -p "epochs: " epochs
 read -p "seed: " seed
 
-for string in "$masks_dir/*pth.tar"; do
+for string in "$masks_dir/*pth"; do
     for mask in $string; do
         echo $mask
         CUDA_VISIBLE_DEVICES=$cuda python3 main_train_DST.py --model $model --data $d \

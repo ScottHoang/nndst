@@ -95,5 +95,30 @@ def generate_csv(graphs_dir: str,
 
 
 if __name__ == "__main__":
-    _, graphs_directory, performances_directory, destination = sys.argv
-    generate_csv(graphs_directory, performances_directory, destination)
+    # _, graphs_directory, performances_directory, destination = sys.argv
+    # graph_dirs = ["analysis/graphs/resnet34/cifar10/original",
+    # "analysis/graphs/resnet34/cifar100/original",
+    # "analysis/graphs_eb/resnet34/cifar10/original",
+    # "analysis/graphs_eb/resnet34/cifar100/original"]
+    # perf_dirs = ["analysis/results/cifar10/performance/10h24m17s_on_Aug_07_2022/dst/from_init",
+    # "analysis/results/cifar100/performance/11h14m31s_on_Aug_07_2022/dst/from_init",
+    # "analysis/results/cifar10/performance/01h09m44s_on_Aug_27_2022/eb/from_init",
+    # "analysis/results/cifar100/performance/02h12m36s_on_Aug_27_2022/eb/from_init",
+    # ]
+    # folders = ['dst', 'dst', 'eb', 'eb']
+
+    graph_dirs = [
+        "analysis/graph_eb_2/cifar10/resnet34/eb",
+    ]
+    perf_dirs = [
+        # "analysis/results/cifar10/performance/10h24m17s_on_Aug_07_2022/dst/from_init",
+        # "analysis/results/cifar100/performance/11h14m31s_on_Aug_07_2022/dst/from_init",
+        "analysis/results/cifar10/performance/01h09m44s_on_Aug_27_2022/eb/from_init",
+        # "analysis/results/cifar100/performance/02h12m36s_on_Aug_27_2022/eb/from_init",
+    ]
+    # folders = ['dst', 'dst', 'eb', 'eb']
+    folders = ['eb']
+    destination = "org_mask_init_train_csv"
+    for graph, perf, folder in tqdm(zip(graph_dirs, perf_dirs, folders),
+                                    total=len(graph_dirs)):
+        generate_csv(graph, perf, osp.join(destination, folder))

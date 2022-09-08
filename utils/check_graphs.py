@@ -4,7 +4,8 @@ import os.path as osp
 import sys
 
 import torch
-from generate_bipartie_graphs import process as generate_graphs
+from generate_structured_bipartie_graphs import process as generate_structured_graphs
+from generate_unstructured_bipartie_graphs import process as generate_unstructured_graphs
 from get_otherscores import main as generate_scores
 from get_ramanujanscores_per_timestep import process as generate_ram_score
 
@@ -55,7 +56,8 @@ def check_others(graph_path):
 
 
 if __name__ == "__main__":
-    _, path, dst = sys.argv
+    _, path, dst, is_eb = sys.argv
+    is_eb = int(is_eb)
     os.makedirs(dst, exist_ok=True)
     files = os.listdir(path)
     files = [
@@ -65,7 +67,16 @@ if __name__ == "__main__":
 
     with open(osp.join(path, 'config.txt'), 'r') as file:
         config = json.load(file)
-    model = config.get('model', config['arch'])
+
+    if is_eb:
+        dataset = config['dataset']
+        model = config['arch']
+        sparsity = 1 - config['sparsity']
+    else:
+        dataset = config['data']
+        model = config['model']
+        sparsity = None
+
     dataset = config.get('dataset', config['data'])
     if dataset == 'cifar10':
         num_classes = 10
@@ -75,7 +86,11 @@ if __name__ == "__main__":
     for file in files:
         tgt = osp.join(dst, osp.basename(file))
         if not check_file(tgt):
-            generate_graphs(file, model, num_classes, dst)
+            if is_eb:
+                generate_structured_graphs(file, model, num_classes, dst,
+                                           sparsity)
+            else:
+                generate_unstructured_graphs(file, model, num_classes, dst)
 
         if not check_ram(tgt):
             print("generate ram score")

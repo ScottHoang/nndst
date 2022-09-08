@@ -1,7 +1,6 @@
 from __future__ import print_function
 
 import argparse
-import collections
 import copy
 import hashlib
 import json
@@ -10,22 +9,18 @@ import os
 import time
 import warnings
 
-import pandas as pd
-import sparselearning
+import lib.sparselearning
 import torch
 import torch.backends.cudnn as cudnn
-import torch.nn as nn
 import torch.nn.functional as F
-import torch.nn.utils.prune as prune
 import torch.optim as optim
-from sparselearning.common_models.models import models as MODELS
-from sparselearning.common_models.utils import add_log_softmax
-from sparselearning.core import CosineDecay
-from sparselearning.core import Masking
-from sparselearning.utils import get_cifar100_dataloaders
-from sparselearning.utils import get_cifar10_dataloaders
-from sparselearning.utils import get_mnist_dataloaders
-from sparselearning.utils import plot_class_feature_histograms
+from lib import prune
+from lib.common_models.models import models as MODELS
+from lib.common_models.utils import add_log_softmax
+from lib.sparselearning.utils import get_cifar100_dataloaders
+from lib.sparselearning.utils import get_cifar10_dataloaders
+from lib.sparselearning.utils import get_mnist_dataloaders
+from lib.sparselearning.utils import plot_class_feature_histograms
 
 warnings.filterwarnings("ignore", category=UserWarning)
 cudnn.benchmark = True
@@ -40,26 +35,41 @@ for name, fn in MODELS.items():
     models[name] = (fn, [])
 
 
-def merge_mask(model, mask_path, start_from_init=False):
-    assert os.path.isfile(mask_path)
-    if start_from_init:
-        random_weight = model.state_dict()
-        masked_weight = torch.load(mask_path, map_location='cpu')
-        final_mask = {}
-        for k in masked_weight.keys():
-            rw = random_weight[k].cpu()
-            rm = (masked_weight[k] != 0.0).float()
-            final_mask[k] = rw * rm
+def prune_loop(model,
+               loss,
+               pruner,
+               dataloader,
+               device,
+               density,
+               scope,
+               epochs,
+               train_mode=False):
+
+    # Set model to train or eval mode
+    model.train()
+    if not train_mode:
+        model.eval()
+
+    sparsity = 1.0 - density
+    # Prune model
+    for epoch in range(epochs):
+        pruner.score(model, loss, dataloader, device)
+
+        sparse = sparsity**((epoch + 1) / epochs)
+
+        pruner.mask(sparse, scope)
+
+
+def get_sparse_model(args, model, loss, dataloader, device):
+    if args.sparse:
+        iteration = 1 if args.prune == 'SynFlow' else 1
+        pruner = eval(f"prune.{args.prune}")(prune.masked_parameters(model))
+        prune_loop(model, loss, pruner, dataloader, device, args.density,
+                   'global', iteration)
+        prune.check_sparsity(model)
+        return model
     else:
-        final_mask = torch.load(mask_path, map_location='cpu')
-    model.load_state_dict(final_mask, strict=False)
-    for name, module in model.named_modules():
-        if isinstance(module, (nn.Conv2d, nn.Linear, nn.BatchNorm2d)):
-            mask = (module.weight != 0).float()
-            if isinstance(module, nn.BatchNorm2d):
-                prune.CustomFromMask.apply(module, 'bias', mask)
-            prune.CustomFromMask.apply(module, 'weight', mask)
-    return model
+        return model
 
 
 def save_checkpoint(state, filename='checkpoint.pth.tar'):
@@ -285,19 +295,21 @@ def main():
     parser.add_argument('--mgpu',
                         action='store_true',
                         help='Enable snip initialization. Default: True.')
-    parser.add_argument("--mask_path", type=str, default='')
-    parser.add_argument("--start_from_init", "-sfi", action='store_true')
-    sparselearning.core.add_sparse_args(parser)
+    parser.add_argument('--prune', type=str, default='ERK')
+    parser.add_argument('--density',
+                        type=float,
+                        default=0.05,
+                        help='The density of the overall sparse network.')
+    parser.add_argument('--sparse',
+                        action='store_true',
+                        help='Enable sparse mode. Default: True.')
+    parser.add_argument('--fix',
+                        action='store_true',
+                        help='Fix topology during training. Default: True.')
 
     args = parser.parse_args()
     setup_logger(args)
     print_and_log(args)
-    if args.fp16:
-        try:
-            from apex.fp16_utils import FP16_Optimizer
-        except:
-            print('WARNING: apex not installed, ignoring --fp16 option')
-            args.fp16 = False
 
     use_cuda = not args.no_cuda and torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
@@ -332,17 +344,6 @@ def main():
             cls, cls_args = models[args.model]
             model = cls(num_classes=outputs).cuda()
             add_log_softmax(model)
-            print_and_log(model)
-            print_and_log('=' * 60)
-            print_and_log(args.model)
-            print_and_log('=' * 60)
-
-            print_and_log('=' * 60)
-            print_and_log('Prune mode: {0}'.format(args.death))
-            print_and_log('Growth mode: {0}'.format(args.growth))
-            print_and_log('Redistribution mode: {0}'.format(
-                args.redistribution))
-            print_and_log('=' * 60)
 
         if args.mgpu:
             print('Using multi gpus')
@@ -370,77 +371,8 @@ def main():
                 milestones=[int(args.epochs / 2),
                             int(args.epochs * 3 / 4)],
                 last_epoch=-1)
-        if args.resume:
-            if os.path.isfile(args.resume):
-                print_and_log("=> loading checkpoint '{}'".format(args.resume))
-                checkpoint = torch.load(args.resume)
-                args.start_epoch = checkpoint['epoch']
-                model.load_state_dict(checkpoint['state_dict'])
-                optimizer.load_state_dict(checkpoint['optimizer'])
-                print_and_log("=> loaded checkpoint '{}' (epoch {})".format(
-                    args.resume, checkpoint['epoch']))
-                print_and_log('Testing...')
-                evaluate(args, model, device, test_loader)
-                model.feats = []
-                model.densities = []
-                plot_class_feature_histograms(args, model, device,
-                                              train_loader, optimizer)
-            else:
-                print_and_log("=> no checkpoint found at '{}'".format(
-                    args.resume))
 
-        if args.fp16:
-            print('FP16')
-            optimizer = FP16_Optimizer(optimizer,
-                                       static_loss_scale=None,
-                                       dynamic_loss_scale=True,
-                                       dynamic_loss_args={'init_scale': 2**16})
-            model = model.half()
-
-        timestr = args.mask_path.split("/")[-3]
-        mask_type = args.mask_path.split("/")[-2]
-        mask_no = args.mask_path.split("/")[-1]
-        branching = 'branches' if not args.start_from_init else "from_init"
-        save_dir = os.path.join('results', args.data, 'performance', timestr,
-                                mask_type, branching)
-        os.makedirs(save_dir, exist_ok=True)
-
-        with open(os.path.join(save_dir, 'config.txt'), 'w') as f:
-            json.dump(args.__dict__, f, indent=2)
-
-        model = merge_mask(model, args.mask_path, args.start_from_init)
-
-        best_acc = 0.0
-        acc = collections.defaultdict(list)
-        kill_count = cnt = 20
-        for epoch in range(1, args.epochs * args.multiplier + 1):
-
-            t0 = time.time()
-            train(args, model, device, train_loader, optimizer, epoch, None)
-
-            if lr_scheduler: lr_scheduler.step()
-
-            val_acc = evaluate(args, model, device, valid_loader)
-            acc['val_acc'].append(val_acc)
-            acc['epoch'].append(epoch)
-            if best_acc < val_acc:
-                cnt = kill_count
-                best_acc = val_acc
-            else:
-                cnt -= 1
-
-            print_and_log(
-                'Current learning rate: {0}. Time taken for epoch: {1:.2f} seconds.\n'
-                .format(optimizer.param_groups[0]['lr'],
-                        time.time() - t0))
-            if cnt == 0:
-                print("Early Breaking")
-                break
-
-        df = pd.DataFrame.from_dict(acc)
-        df.to_csv(os.path.join(save_dir, mask_no + ".csv"))
-
-        print_and_log("\nIteration end: {0}/{1}\n".format(i + 1, args.iters))
+        model = get_sparse_model(args, model, F.nll_loss, train_loader, device)
 
 
 if __name__ == '__main__':

@@ -22,8 +22,9 @@ def main(graph_path: str):
     graph = torch.load(graph_path)
     pairs = pair_layers(list(graph.keys()))
     for i, (layer1, layer2) in enumerate(pairs):
-        if f'{layer2}_copeland_score' in graph[layer1]:
-            continue
+        # if f'{layer2}_copeland_score' in graph[layer1]:
+        # continue
+        if layer2 == 'layer4.0.downsample.0':
         clscore = copeland_score(graph[layer1], graph[layer2])
         overlap_coefs = channel_overlap_coefs(graph[layer2],
                                               graph[layer1]['dim_out'])

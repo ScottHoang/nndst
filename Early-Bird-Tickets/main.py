@@ -516,7 +516,7 @@ save_dir = os.path.join('results', args.dataset, args.arch, 'masks', timestr)
 os.makedirs(save_dir, exist_ok=True)
 with open(os.path.join(save_dir, 'config.txt'), 'w') as f:
     json.dump(args.__dict__, f, indent=2)
-early_bird = EarlyBird(float(args.sparsity))
+early_bird = EarlyBird(1 - float(args.sparsity))
 for epoch in range(args.start_epoch, args.epochs):
 
     if early_bird.early_bird_emerge(model):
@@ -528,3 +528,4 @@ for epoch in range(args.start_epoch, args.epochs):
         for param_group in optimizer.param_groups:
             param_group['lr'] *= 0.1
     train(epoch)
+    test()

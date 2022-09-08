@@ -13,6 +13,7 @@ import torch
 import torch.nn as nn
 import torch_geometric as pyg
 
+
 def get_eig_values(matrix: np.array) -> List[float]:
     """
     get the real eig of a square matrix

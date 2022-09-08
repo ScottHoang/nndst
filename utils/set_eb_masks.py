@@ -60,10 +60,9 @@ def struct_unstruct_conversion(model: torch.nn.Module,
     bn_mask = pruning(model, sparsity)
     cur_idx = 0
     for name, m in model.named_modules():
-        if isinstance(m, nn.Conv2d):
-            outc, inc, h, w = m.weight.shape
+        if isinstance(m, nn.BatchNorm2d):
+            outc = m.weight.shape[0]
             sub_mask = bn_mask[cur_idx:cur_idx + outc]
-            sub_mask = sub_mask.tile(inc * h * w, 1).T.reshape(outc, inc, h, w)
             m.weight.data = m.weight.data * sub_mask
             cur_idx += outc
     assert cur_idx == bn_mask.size(0)

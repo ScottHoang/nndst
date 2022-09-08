@@ -1,10 +1,13 @@
 import collections
 import json
-import math
 import os
 import os.path as osp
 import sys
 from multiprocessing import Process
+from typing import Any
+from typing import Callable
+from typing import Optional
+from typing import Tuple
 
 import networkx as nx
 import numpy as np
@@ -116,6 +119,73 @@ def from_networkx(G, group_node_attrs=None, group_edge_attrs=None):
     return data
 
 
+def generate_nx_graphs(weight: torch.Tensor,
+                       offset: int,
+                       current_index: int,
+                       masks: Optional[torch.Tensor] = None) -> Tuple[Any]:
+    """generate nx graph for unstructured dst given weights
+
+    :weights: TODO
+    :returns: TODO
+
+    """
+    nx_new = nx.Graph()
+    if len(weight.shape) == 4:  # c_out x c_in x kH x kw
+        c_out = weight.shape[0]
+        weight = weight.reshape(c_out, -1)
+        weight = np.transpose(weight)
+        assert weight.shape[1] == c_out
+    dim_in, dim_out = weight.shape
+    if offset == 0:
+        idx_in_start = 0
+        idx_out_start = dim_in
+    else:
+        idx_in_start = current_index
+        idx_out_start = current_index + dim_in
+    for i in range(dim_in):
+        nx_new.add_node(i)
+        for j in range(dim_out):
+            idx_in = i
+            idx_out = j + dim_in
+            nx_new.add_node(idx_out)
+            edge_w = np.abs(weight[i, j])
+            if masks is None:
+                # unstructured
+                if edge_w > 0:
+                    nx_new.add_weighted_edges_from([(idx_in, idx_out, edge_w)])
+            else:
+                # structure pruning
+                if masks[j] > 0:
+                    nx_new.add_weighted_edges_from([(idx_in, idx_out, edge_w)])
+    return nx_new, dim_in, dim_out, idx_in_start, idx_out_start
+
+
+def update_collections(nx, idx_in_start, idx_out_start, dim_in, dim_out):
+    """update_collections.
+
+    :pkg: TODO
+    :nx: TODO
+    :idx_in_start: TODO
+    :idx_out_start: TODO
+    :dim_in: TODO
+    :dim_out: TODO
+    :returns: TODO
+
+    """
+    ret = {}
+    ret['idx_in_start'] = idx_in_start
+    ret['idx_out_start'] = idx_out_start
+    ret['dim_in'] = dim_in
+    ret['dim_out'] = dim_out
+    ret['sparsity'] = nx.number_of_edges() / (dim_in * dim_out)
+    group_edge_attrs = None
+    if len(nx.edges()) > 0:
+        group_edge_attrs = ['weight']
+    ret['graph'] = from_networkx(nx, group_edge_attrs=group_edge_attrs)
+    ret['graph'].num_nodes = dim_in + dim_out
+    return ret
+
+
 def mlp_to_network(neuron_network, draw=False):
     """mlp_to_network
 
@@ -127,46 +197,15 @@ def mlp_to_network(neuron_network, draw=False):
     Returns:
         [type]: [description]
     """
-    # nodes_num = 0
     graphs = collections.defaultdict(dict)
-    # nodes_num=nodes_num+(neuron_network.conv.in_channels)*(neuron_network.conv.out_channels)
-    # node_list.append(len(node_list)+np.arange(neuron_network.conv.in_channels + neuron_network.conv.out_channels))
 
+    idx_out_start = 0
     for l, (n, w) in enumerate(neuron_network.items()):
-        nx_new = nx.Graph()
-        if len(w.shape) == 4:  # c_out x c_in x kH x kw
-            c_out, c_in, kH, kW = w.shape
-            w = w.reshape(c_out, -1)
-            w = np.transpose(w)
-            assert w.shape[1] == c_out
-        dim_in, dim_out = w.shape
-        if l == 0:
-            idx_in_start = 0
-            idx_out_start = dim_in
-        else:
-            idx_in_start = idx_out_start
-            idx_out_start = idx_out_start + dim_in
-        for i in range(dim_in):
-            nx_new.add_node(i)
-            for j in range(dim_out):
-                idx_in = i
-                idx_out = j + dim_in
-                nx_new.add_node(idx_out)
-                edge_w = np.abs(w[i, j])
-                if edge_w > 0:
-                    nx_new.add_weighted_edges_from([(idx_in, idx_out, edge_w)])
-
-        graphs[n]['idx_in_start'] = idx_in_start
-        graphs[n]['idx_out_start'] = idx_out_start
-        graphs[n]['dim_in'] = dim_in
-        graphs[n]['dim_out'] = dim_out
-        graphs[n]['sparsity'] = nx_new.number_of_edges() / (dim_in * dim_out)
-        group_edge_attrs = None
-        if len(nx_new.edges()) > 0:
-            group_edge_attrs = ['weight']
-        graphs[n]['graph'] = from_networkx(nx_new,
-                                           group_edge_attrs=group_edge_attrs)
-        graphs[n]['graph'].num_nodes = dim_in + dim_out
+        nx_new, dim_in, dim_out, idx_in_start, idx_out_start = generate_nx_graphs(
+            w, l, idx_out_start)
+        graphs[n].update(
+            update_collections(nx_new, idx_in_start, idx_out_start, dim_in,
+                               dim_out))
 
     return graphs
 
@@ -200,8 +239,8 @@ if __name__ == "__main__":
 
     with open(osp.join(path, 'config.txt'), 'r') as file:
         config = json.load(file)
-    model = config.get('model', config['arch'])
-    dataset = config.get('dataset', config['data'])
+    model = config['model']
+    dataset = config['dataset']
     if dataset == 'cifar10':
         num_classes = 10
     elif dataset == 'cifar100':
