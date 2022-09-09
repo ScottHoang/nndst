@@ -52,19 +52,16 @@ def prune_loop(model,
     if not train_mode:
         model.eval()
 
-    sparsity = 1.0 - density
     # Prune model
     for epoch in range(epochs):
         pruner.score(model, loss, dataloader, device)
-
-        sparse = sparsity**((epoch + 1) / epochs)
-
+        sparse = 1 - density**((epoch + 1) / epochs)
         pruner.mask(sparse, scope)
 
 
 def get_sparse_model(args, model, loss, dataloader, device):
     if args.sparse:
-        iteration = 1
+        iteration = 1000 if args.prune == 'SynFlow' else 1
         pruner = eval(f"prune.{args.prune}")(prune.masked_parameters(model))
         prune_loop(model, loss, pruner, dataloader, device, args.density,
                    'global', iteration)
@@ -155,6 +152,7 @@ def train(args, model, device, train_loader, optimizer, epoch, mask=None):
         '\n{}: Average loss: {:.4f}, Accuracy: {}/{} ({:.3f}%)\n'.format(
             'Training summary', train_loss / batch_idx, correct, n,
             100. * correct / float(n)))
+    return train_loss / batch_idx
 
 
 def evaluate(args, model, device, test_loader, is_test_set=False):
@@ -344,7 +342,7 @@ def main():
             raise Exception('You need to select a model')
         else:
             cls, cls_args = models[args.model]
-            model = cls(num_classes=outputs).cuda()
+            model = cls(num_classes=outputs, seed=args.seed).cuda()
             add_log_softmax(model)
 
         if args.mgpu:
@@ -395,37 +393,33 @@ def main():
         timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
         mask = None
         save_dir = os.path.join('results', args.data, args.model, args.prune,
-                                timestr)
+                                str(args.seed), timestr)
         os.makedirs(save_dir, exist_ok=True)
 
         with open(os.path.join(save_dir, 'config.txt'), 'w') as f:
             json.dump(args.__dict__, f, indent=2)
 
         model = get_sparse_model(args, model, F.nll_loss, train_loader, device)
-        # mask = Masking(optimizer,
-        # death_rate=args.death_rate,
-        # death_mode=args.death,
-        # death_rate_decay=decay,
-        # growth_mode=args.growth,
-        # redistribution_mode=args.redistribution,
-        # args=args)
-        # mask.add_module(model,
-        # sparse_init=args.sparse_init,
-        # density=args.density)
-        # mask.save_dir = save_dir
-
+        save_checkpoint(model.state_dict(),
+                        os.path.join(save_dir, "init.pth.tar"))
         best_acc = 0.0
         acc = collections.defaultdict(list)
 
         for epoch in range(1, args.epochs * args.multiplier + 1):
 
             t0 = time.time()
-            train(args, model, device, train_loader, optimizer, epoch, mask)
+            loss = train(args, model, device, train_loader, optimizer, epoch,
+                         mask)
 
             if lr_scheduler: lr_scheduler.step()
 
             if args.valid_split > 0.0:
                 val_acc = evaluate(args, model, device, valid_loader)
+                test_acc = evaluate(args, model, device, test_loader, True)
+                acc['val_acc'].append(val_acc)
+                acc['test_acc'].append(test_acc)
+                acc['epoch'].append(epoch)
+            acc['train_loss'].append(loss)
 
             if val_acc > best_acc:
                 print('Saving model')
