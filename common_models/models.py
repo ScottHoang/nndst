@@ -1,6 +1,9 @@
 import torch
 import torchvision
 
+from .utils import init
+from .utils import set_seed
+
 __all__ = ['resnet18', 'resnet34', 'resnet50', 'vgg16', 'models']
 
 import os
@@ -14,31 +17,46 @@ else:
     RANDOM_PATH = path2
 
 
+def get_name(model_name, num_classes, seed):
+    return f"{model_name}_c-{num_classes}_seed-{seed}.path.tar"
+
+
 def resnet18(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.resnet18(num_classes=n)
-    try_load_random(model, os.path.join(RANDOM_PATH, f"resnet18_{n}.pth.tar"))
+    seed = kwargs.get('seed', 69)
+    try_load_random(model,
+                    os.path.join(RANDOM_PATH, get_name('resnet18', n, seed)),
+                    seed)
     return model
 
 
 def resnet34(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.resnet34(num_classes=n)  #*args, **kwargs)
-    try_load_random(model, os.path.join(RANDOM_PATH, f"resnet34_{n}.pth.tar"))
+    seed = kwargs.get('seed', 69)
+    try_load_random(model,
+                    os.path.join(RANDOM_PATH, get_name('resnet34', n, seed)),
+                    seed)
     return model
 
 
 def resnet50(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.resnet50(num_classes=n)  #*args, **kwargs)
-    try_load_random(model, os.path.join(RANDOM_PATH, f"resnet50_{n}.pth.tar"))
+    seed = kwargs.get('seed', 69)
+    try_load_random(model,
+                    os.path.join(RANDOM_PATH, get_name('resnet50', n, seed)),
+                    seed)
     return model
 
 
 def vgg16(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.vgg16_bn(num_classes=n)  #*args, **kwargs)
-    try_load_random(model, os.path.join(RANDOM_PATH, f"vgg16_{n}.pth.tar"))
+    seed = kwargs.get('seed', 69)
+    try_load_random(model, os.path.join(RANDOM_PATH,
+                                        get_name('vgg16', n, seed)), seed)
     return model
 
 
@@ -61,11 +79,14 @@ def resolve(args, kwargs):
     return n
 
 
-def try_load_random(model, path):
-    if os.path.isfile(path):
+def try_load_random(model, path, seed, verbose=False):
+    try:
         model.load_state_dict(torch.load(path))
-    else:
-        print("fail to load random weights")
+    except:
+        print(f"{path} does not exists, generating one now")
+        set_seed(seed)
+        init(model)
+        torch.save(model.state_dict(), path)
 
 
 models = {
