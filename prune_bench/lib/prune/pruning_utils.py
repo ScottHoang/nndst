@@ -4,6 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.utils.prune as prune
+
+from .phew import phew_utils
 # from layers import Conv2d
 # from layers import Linear
 
@@ -21,6 +23,7 @@ __all__ = [
     'prune_model_custom',
     'extract_mask',
     'ERK',
+    'PHEW',
 ]
 
 
@@ -41,6 +44,10 @@ def masked_parameters(model):
             mask = torch.ones_like(module.weight)
             prune.CustomFromMask.apply(module, 'weight', mask)
             yield module.weight_mask, module.weight_orig
+            if hasattr(module, 'bias'):
+                print(f"found bias in {module}, removing it ....")
+                del module.bias
+                module.register_parameter("bias", None)
 
 
 class Pruner:
@@ -365,6 +372,41 @@ class ERK(Pruner):
             mask.data.copy_(
                 (torch.rand(mask.shape) < self.density_dict[name]).float())
             total_nonzero += self.density_dict[name] * mask.numel()
+
+
+class PHEW(Pruner):
+    """Docstring for PHEW. """
+
+    def __init__(self, masked_parameters):
+        """TODO: to be defined.
+
+        :masked_parameters: TODO
+
+        """
+        Pruner.__init__(self, masked_parameters)
+
+    def score(self, *args, **kwargs):
+        pass
+
+    def mask(self, sparsity, scope=None):
+        parameters = [mask[1] for mask in self.masked_parameters]
+        prob, reverse_prob, kernel_prob = phew_utils.generate_probability(
+            parameters)
+
+        weight_masks, bias_masks = phew_utils.generate_masks(
+            [torch.zeros_like(p) for p in parameters])
+
+        prune_perc = sparsity * 100
+        weight_masks, bias_masks = phew_utils.phew_masks(parameters,
+                                                         prune_perc,
+                                                         prob,
+                                                         reverse_prob,
+                                                         kernel_prob,
+                                                         weight_masks,
+                                                         bias_masks,
+                                                         verbose=True)
+        for i, (m, _) in enumerate(self.masked_parameters):
+            m.data.copy_(weight_masks[i].data)
 
 
 def check_sparsity(model):

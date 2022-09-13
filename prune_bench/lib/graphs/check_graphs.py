@@ -73,7 +73,7 @@ def check(file, dst, seed):
 if __name__ == "__main__":
     _, path = sys.argv
     ##
-    prunes = "SNIP GraSP SynFlow ERK Rand"
+    prunes = "SNIP GraSP SynFlow ERK Rand iterSNIP PHEW"
     prunes = prunes.split(' ')
     # os.makedirs(dst, exist_ok=True)
     ##

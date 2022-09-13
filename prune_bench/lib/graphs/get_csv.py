@@ -64,7 +64,7 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
     """
     layers_df = collections.defaultdict(list)
     for file in files:
-        _, dataset, model, prune_type, seed, *_ = file.split('/')
+        _, density, dataset, model, prune_type, seed, *_ = file.split('/')
         graphs = torch.load(file)
         pairs = pair_layers(list(graphs.items()))
         for i, (layer, info) in enumerate(graphs.items()):
@@ -94,11 +94,11 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
                 layers_df['copeland_score'].append(0)
                 layers_df['compatibility'].append(0)
                 layers_df['overlap_coefs'].append(0)
-    folder, dataset, model, prune_type, seed, *_ = files[0].split('/')
+    folder, density, dataset, model, prune_type, seed, *_ = files[0].split('/')
     name = f"graph_seed-{seed}"
     layers_df = pd.DataFrame.from_dict(layers_df)
     if write:
-        save(layers_df, osp.join(folder, dataset, model), name)
+        save(layers_df, osp.join(folder, density, dataset, model, 'csv'), name)
     return layers_df
 
 
@@ -110,7 +110,7 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
     """
     summary = collections.defaultdict(list)
     for file in files:
-        _, dataset, model, prune_type, seed, *_ = file.split('/')
+        _, density, dataset, model, prune_type, seed, *_ = file.split('/')
         df = pd.read_csv(file)
         df = df.sort_values(by=['epoch'])
         keys = df.keys()
@@ -118,11 +118,11 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
             summary[f'{k}'].extend(df[k].tolist())
         summary['prune_type'].extend([prune_type] * len(df.index))
 
-    folder, dataset, model, prune_type, seed, *_ = files[0].split('/')
+    folder, density, dataset, model, prune_type, seed, *_ = files[0].split('/')
     summary = pd.DataFrame.from_dict(summary)
     name = f"summary-{seed}"
     if write:
-        save(summary, osp.join(folder, dataset, model), name)
+        save(summary, osp.join(folder, density, dataset, model, 'csv'), name)
     return summary
 
 

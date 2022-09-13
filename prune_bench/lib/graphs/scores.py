@@ -138,8 +138,12 @@ def get_degrees(graph: pyg.data.Data) -> Union[torch.Tensor, None]:
 def copeland_score(layer1: dict, layer2: dict) -> float:
     """
     get a copeland score. input and output node degree are normalized
-    across input and output masks. this modified copeland scores in [0,1] and
-    is the quotient between normalized in and out degree
+    across input and output masks. this modified copeland scores in between [0, R] and
+    is the quotient between normallzed out and in degree.
+
+    1.0 = good
+    >1.0=compression
+    <1.0=bottlneck
     params:
         layer1: dict type produced by generate_bipartie_graph
         layer2: ~same type as layer1. And should be the sequential layer after layer1

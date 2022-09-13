@@ -10,12 +10,14 @@ import os
 import time
 import warnings
 
-import lib.sparselearning
 import pandas as pd
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import torch.optim as optim
+from tqdm import tqdm
+
+import lib.sparselearning
 from lib import prune
 from lib.common_models.models import models as MODELS
 from lib.common_models.utils import add_log_softmax
@@ -53,26 +55,39 @@ def prune_loop(model,
         model.eval()
 
     # Prune model
-    for epoch in range(epochs):
+    for epoch in tqdm(range(epochs)):
         pruner.score(model, loss, dataloader, device)
         sparse = 1 - density**((epoch + 1) / epochs)
         pruner.mask(sparse, scope)
 
 
-def get_sparse_model(args, model, loss, dataloader, device):
+def get_sparse_model(args, model, loss, dataloader, device, save_dir):
+    prunemethod = args.prune
     if args.sparse:
-        iteration = 1000 if args.prune == 'SynFlow' else 1
-        pruner = eval(f"prune.{args.prune}")(prune.masked_parameters(model))
-        prune_loop(model, loss, pruner, dataloader, device, args.density,
-                   'global', iteration)
+        if args.prune in ('SynFlow', 'iterSNIP'):
+            iteration = 100
+            if args.prune == 'iterSNIP':
+                prunemethod = 'SNIP'
+        else:
+            iteration = 1
+        pruner = eval(f"prune.{prunemethod}")(prune.masked_parameters(model))
+        if not args.retrain_mask:
+            prune_loop(model, loss, pruner, dataloader, device, args.density,
+                       'global', iteration)
+        else:
+            list(prune.masked_parameters(model))
+            model.load_state_dict(
+                torch.load(os.path.join(save_dir, 'init.pth.tar'),
+                           map_location='cpu'))
         prune.check_sparsity(model)
         return model
     else:
+        args.density = 1.0
+        args.prune = "none"
         return model
 
 
 def save_checkpoint(state, filename='checkpoint.pth.tar'):
-    print("SAVING")
     torch.save(state, filename)
 
 
@@ -136,8 +151,7 @@ def train(args, model, device, train_loader, optimizer, epoch, mask=None):
         else:
             loss.backward()
 
-        if mask is not None: mask.step()
-        else: optimizer.step()
+        optimizer.step()
 
         if batch_idx % args.log_interval == 0:
             print_and_log(
@@ -246,6 +260,7 @@ def main():
     parser.add_argument('--start-epoch', type=int, default=1)
     parser.add_argument('--model', type=str, default='')
     parser.add_argument('--l2', type=float, default=5e-4)
+    parser.add_argument('--retrain_mask', action='store_true')
     parser.add_argument(
         '--iters',
         type=int,
@@ -320,12 +335,8 @@ def main():
     torch.manual_seed(args.seed)
     for i in range(args.iters):
         print_and_log("\nIteration start: {0}/{1}\n".format(i + 1, args.iters))
-
-        if args.data == 'mnist':
-            train_loader, valid_loader, test_loader = get_mnist_dataloaders(
-                args, validation_split=args.valid_split)
-            outputs = 10
-        elif args.data == 'cifar10':
+        outputs = 10
+        if args.data == 'cifar10':
             train_loader, valid_loader, test_loader = get_cifar10_dataloaders(
                 args, args.valid_split, max_threads=args.max_threads)
             outputs = 10
@@ -333,6 +344,9 @@ def main():
             train_loader, valid_loader, test_loader = get_cifar100_dataloaders(
                 args, args.valid_split, max_threads=args.max_threads)
             outputs = 100
+        else:
+            raise NotImplementedError
+
         if args.model not in models:
             print(
                 'You need to select an existing model via the --model argument. Available models include: '
@@ -349,6 +363,20 @@ def main():
             print('Using multi gpus')
             model = torch.nn.DataParallel(model).to(device)
 
+        timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+        if not args.retrain_mask:
+            save_dir = os.path.join('results', f"density_{args.density}",
+                                    args.data, args.model, args.prune,
+                                    str(args.seed), timestr)
+        else:
+            save_dir = os.path.join('results', f"density_{args.density}",
+                                    args.data, args.model, args.prune,
+                                    str(args.seed), 'latest')
+
+        os.makedirs(save_dir, exist_ok=True)
+
+        model = get_sparse_model(args, model, F.nll_loss, train_loader, device,
+                                 save_dir)
         optimizer = None
         if args.optimizer == 'sgd':
             optimizer = optim.SGD(model.parameters(),
@@ -390,16 +418,11 @@ def main():
                 print_and_log("=> no checkpoint found at '{}'".format(
                     args.resume))
 
-        timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
         mask = None
-        save_dir = os.path.join('results', args.data, args.model, args.prune,
-                                str(args.seed), timestr)
-        os.makedirs(save_dir, exist_ok=True)
 
         with open(os.path.join(save_dir, 'config.txt'), 'w') as f:
             json.dump(args.__dict__, f, indent=2)
 
-        model = get_sparse_model(args, model, F.nll_loss, train_loader, device)
         save_checkpoint(model.state_dict(),
                         os.path.join(save_dir, "init.pth.tar"))
         best_acc = 0.0
