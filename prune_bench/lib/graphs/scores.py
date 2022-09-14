@@ -91,7 +91,10 @@ def pair_layers(layernames: Union[List[str], List[Tuple]]) -> List[str]:
         prev = layernames[i - 1]
         cur_name = cur if isinstance(cur, str) else cur[0]
         prev_name = prev if isinstance(prev, str) else prev[0]
+
         if cur == 'fc' or prev == 'fc':
+            continue
+        if 'classifier' in cur and 'features' in prev:
             continue
 
         if 'downsample' in cur_name:
@@ -153,6 +156,8 @@ def copeland_score(layer1: dict, layer2: dict) -> float:
     l1_out = layer1['dim_out']
     l2_in = layer2['dim_in']
     k_size = l2_in // l1_out
+    if k_size == 0:
+        k_size = 1
     l1deg = get_degrees(layer1['graph'])
     l2deg = get_degrees(layer2['graph'])
 
@@ -230,14 +235,3 @@ def compatibility_ratio(layer1: dict, layer2: dict) -> float:
     compatibility = (in_mask
                      & out_mask).float().sum().item() / in_mask.sum().item()
     return compatibility
-
-
-def ERK(layer1: dict, module: nn.Module) -> float:
-    """TODO: Docstring for ERK.
-
-    :layer1: TODO
-    :module: TODO
-    :returns: TODO
-
-    """
-    pass

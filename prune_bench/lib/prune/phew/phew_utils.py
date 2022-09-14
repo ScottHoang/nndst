@@ -23,10 +23,16 @@ def get_norm(p):
 
 
 def kernel_probability(filter):
+    abs_filter = np.abs(filter).reshape(filter.shape[0], -1)
+    sum_filter = abs_filter.sum(axis=-1)
+    if len(filter.shape) == 3:
+        filter = filter / sum_filter[:, None, None]
+    else:
+        filter = filter / sum_filter[:, None]
 
-    for i in range(filter.shape[0]):
-        s = np.sum(np.absolute(filter[i]))
-        filter[i] = filter[i] / float(s)
+    # for i in range(filter.shape[0]):
+    # s = np.sum(np.absolute(filter[i]))
+    # filter[i] = filter[i] / float(s)
     return filter
 
 
@@ -46,31 +52,37 @@ def generate_probability(parameters, verbose=True):
             kernel_prob.append([])
             p2 = abs(p.detach().cpu().numpy())
             p1 = get_norm(p)
-            p1 = np.array(p1)
+            # p1 = np.array(p1)
             for i in range(p1.shape[0]):
                 par = p1[i]
+                spar = sum(par)
                 if verbose == True:
                     print(f'i value : {i},' \
                           + f'\tTarget Value: {p1.shape[0]}', end="\r", flush=True)
-                if sum(par) != 0:
-                    pvals = [float(float(o) / float(sum(par))) for o in par]
+                if spar != 0:
+                    pvals = par / spar  #sum(par)
+                    pvals = pvals.tolist()
+                    #[float(float(o) / float(sum(par))) for o in par]
                 else:
-                    pvals = [
-                        float(float(1) / float(par.shape[0])) for o in par
-                    ]
+                    pvals = [1.0 / par.shape[0]] * par.shape[0]
+
+                    # pvals = [
+                    # float(float(1) / float(par.shape[0])) for o in par
+                    # ]
                 reverse_prob[layer_no].append(pvals)
             p1 = np.transpose(np.array(p1))
             for i in range(p1.shape[0]):
                 par = p1[i]
+                spar = sum(par)
                 if verbose == True:
                     print(f'i value : {i},' \
                           + f'\tTarget Value: {p1.shape[0]}', end="\r", flush=True)
                 if sum(par) != 0:
-                    pvals = [float(float(o) / float(sum(par))) for o in par]
+                    pvals = par / sum(par)
+                    pvals = pvals.tolist()
+                    #[float(float(o) / float(sum(par))) for o in par]
                 else:
-                    pvals = [
-                        float(float(1) / float(par.shape[0])) for o in par
-                    ]
+                    pvals = [1.0 / par.shape[0]] * par.shape[0]
                 prob[layer_no].append(pvals)
             for i in range(p2.shape[0]):
                 kernel_prob[layer_no].append(kernel_probability(p2[i]))

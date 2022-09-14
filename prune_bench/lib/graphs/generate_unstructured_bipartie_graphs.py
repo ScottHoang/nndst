@@ -226,6 +226,9 @@ def masked_parameters(model):
         if isinstance(module, (nn.Conv2d, nn.Linear)):
             mask = torch.ones_like(module.weight)
             prune.CustomFromMask.apply(module, 'weight', mask)
+            if hasattr(module, 'bias'):
+                del module.bias
+                module.register_parameter("bias", None)
     return model
 
 

@@ -3,9 +3,8 @@ import os.path as osp
 import sys
 
 import torch
-from tqdm import tqdm
-
 from scores import ramanujan_score as ram
+from tqdm import tqdm
 
 
 def process(graph_path: str):

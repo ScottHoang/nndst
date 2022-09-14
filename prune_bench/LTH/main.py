@@ -1,31 +1,37 @@
 # Importing Libraries
 import argparse
+import collections
 import copy
+import json
 import os
 import pickle
 import sys
+import time
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import seaborn as sns
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn.init as init
+import torch.nn.utils.prune as prune
 import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
 from common_models import models
 from common_models.utils import set_seed
-from tensorboardX import SummaryWriter
 from tqdm import tqdm
 
 import utils
+
+model = None
+mask = []
 # Custom Libraries
 
 # Tensorboard initialization
-writer = SummaryWriter()
 
 # Plotting Style
 sns.set_style('darkgrid')
@@ -42,7 +48,7 @@ def main(args, ITE=0):
         [transforms.ToTensor(),
          transforms.Normalize((0.1307, ), (0.3081, ))])
 
-    if args.dataset == "cifar10":
+    if args.data == "cifar10":
         traindataset = datasets.CIFAR10('../data',
                                         train=True,
                                         download=True,
@@ -52,7 +58,7 @@ def main(args, ITE=0):
                                        transform=transform)
         num_classes = 10
 
-    elif args.dataset == "cifar100":
+    elif args.data == "cifar100":
         traindataset = datasets.CIFAR100('../data',
                                          train=True,
                                          download=True,
@@ -82,24 +88,36 @@ def main(args, ITE=0):
 
     # Importing Network Architecture
     global model
+    global mask
     model = models[args.arch_type](num_classes=num_classes, seed=args.seed)
+    for m in model.modules():
+        if isinstance(m, (nn.Linear, nn.Conv2d)):
+            if hasattr(m, 'bias'):
+                print(f"found bias in {m} removing it....")
+                del m.bias
+                m.register_parameter("bias", None)
+    model = model.cuda()
+    timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
+    save_dir = os.path.join('results', f"density_{args.density}", args.data,
+                            args.arch_type, 'lth', str(args.seed), timestr)
+    os.makedirs(save_dir, exist_ok=True)
 
     # Weight Initialization
     # model.apply(weight_init)
 
     # Copying and Saving Initial State
     initial_state_dict = copy.deepcopy(model.state_dict())
-    utils.checkdir(f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/")
-    torch.save(
-        model,
-        f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/initial_state_dict_{args.prune_type}.pth.tar"
-    )
+    torch.save(initial_state_dict, os.path.join(save_dir, 'init.pth.tar'))
 
     # Making Initial Mask
     make_mask(model)
 
     # Optimizer and Loss
     optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4)
+    # optimizer = torch.optim.SGD(model.parameters(),
+    # lr=args.lr,
+    # momentum=0.9,
+    # weight_decay=5e-4)
     criterion = nn.CrossEntropyLoss()  # Default was F.nll_loss
 
     # Layer Looper
@@ -117,24 +135,15 @@ def main(args, ITE=0):
     all_loss = np.zeros(args.end_iter, float)
     all_accuracy = np.zeros(args.end_iter, float)
 
+    with open(os.path.join(save_dir, 'config.txt'), 'w') as f:
+        json.dump(args.__dict__, f, indent=2)
+
     for _ite in range(args.start_iter, ITERATION):
         if not _ite == 0:
             prune_by_percentile(args.prune_percent,
                                 resample=resample,
-                                reinit=reinit)
-            if reinit:
-                model.apply(weight_init)
-                step = 0
-                for name, param in model.named_parameters():
-                    if 'weight' in name:
-                        weight_dev = param.device
-                        param.data = torch.from_numpy(
-                            param.data.cpu().numpy() *
-                            mask[step]).to(weight_dev)
-                        step = step + 1
-                step = 0
-            else:
-                original_initialization(mask, initial_state_dict)
+                                reinit=False)
+            original_initialization(mask, initial_state_dict)
             optimizer = torch.optim.Adam(model.parameters(),
                                          lr=args.lr,
                                          weight_decay=1e-4)
@@ -145,6 +154,7 @@ def main(args, ITE=0):
         comp[_ite] = comp1
         pbar = tqdm(range(args.end_iter))
 
+        df = collections.defaultdict(list)
         for iter_ in pbar:
 
             # Frequency for Testing
@@ -154,102 +164,39 @@ def main(args, ITE=0):
                 # Save Weights
                 if accuracy > best_accuracy:
                     best_accuracy = accuracy
-                    utils.checkdir(
-                        f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/"
-                    )
                     torch.save(
-                        model,
-                        f"{os.getcwd()}/saves/{args.arch_type}/{args.dataset}/{_ite}_model_{args.prune_type}.pth.tar"
-                    )
+                        {
+                            'state_dict': get_prune_models(model),
+                            'epoch': iter_ + 1
+                        }, os.path.join(save_dir, 'model.pth'))
 
             # Training
             loss = train(model, train_loader, optimizer, criterion)
-            all_loss[iter_] = loss
-            all_accuracy[iter_] = accuracy
+
+            df['loss'].append(loss)
+            df['val_acc'].append(accuracy)
+            df['test_acc'].append(accuracy)
+            df['epoch'].append(iter_)
 
             # Frequency for Printing Accuracy and Loss
             if iter_ % args.print_freq == 0:
                 pbar.set_description(
                     f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {accuracy:.2f}% Best Accuracy: {best_accuracy:.2f}%'
                 )
+        df = pd.DataFrame.from_dict(df)
+        df.to_csv(os.path.join(save_dir, "results.csv"))
 
-        writer.add_scalar('Accuracy/test', best_accuracy, comp1)
-        bestacc[_ite] = best_accuracy
 
-        # Plotting Loss (Training), Accuracy (Testing), Iteration Curve
-        #NOTE Loss is computed for every iteration while Accuracy is computed only for every {args.valid_freq} iterations. Therefore Accuracy saved is constant during the uncomputed iterations.
-        #NOTE Normalized the accuracy to [0,100] for ease of plotting.
-        plt.plot(np.arange(1, (args.end_iter) + 1),
-                 100 * (all_loss - np.min(all_loss)) /
-                 np.ptp(all_loss).astype(float),
-                 c="blue",
-                 label="Loss")
-        plt.plot(np.arange(1, (args.end_iter) + 1),
-                 all_accuracy,
-                 c="red",
-                 label="Accuracy")
-        plt.title(
-            f"Loss Vs Accuracy Vs Iterations ({args.dataset},{args.arch_type})"
-        )
-        plt.xlabel("Iterations")
-        plt.ylabel("Loss and Accuracy")
-        plt.legend()
-        plt.grid(color="gray")
-        utils.checkdir(
-            f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/")
-        plt.savefig(
-            f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_LossVsAccuracy_{comp1}.png",
-            dpi=1200)
-        plt.close()
-
-        # Dump Plot values
-        utils.checkdir(
-            f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/")
-        all_loss.dump(
-            f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_all_loss_{comp1}.dat"
-        )
-        all_accuracy.dump(
-            f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_all_accuracy_{comp1}.dat"
-
-        # Dumping mask
-        utils.checkdir(
-            f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/")
-        with open(
-                f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_mask_{comp1}.pkl",
-                'wb') as fp:
-            pickle.dump(mask, fp)
-
-        # Making variables into 0
-        best_accuracy = 0
-        all_loss = np.zeros(args.end_iter, float)
-        all_accuracy = np.zeros(args.end_iter, float)
-
-    # Dumping Values for Plotting
-    utils.checkdir(f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/")
-    comp.dump(
-        f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_compression.dat"
-    )
-    bestacc.dump(
-        f"{os.getcwd()}/dumps/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_bestaccuracy.dat"
-    )
-
-    # Plotting
-    a = np.arange(args.prune_iterations)
-    plt.plot(a, bestacc, c="blue", label="Winning tickets")
-    plt.title(
-        f"Test Accuracy vs Unpruned Weights Percentage ({args.dataset},{args.arch_type})"
-    )
-    plt.xlabel("Unpruned Weights Percentage")
-    plt.ylabel("test accuracy")
-    plt.xticks(a, comp, rotation="vertical")
-    plt.ylim(0, 100)
-    plt.legend()
-    plt.grid(color="gray")
-    utils.checkdir(f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/")
-    plt.savefig(
-        f"{os.getcwd()}/plots/lt/{args.arch_type}/{args.dataset}/{args.prune_type}_AccuracyVsWeights.png",
-        dpi=1200)
-    plt.close()
+def get_prune_models(model):
+    model = copy.deepcopy(model)
+    for name, module in model.named_modules():
+        if isinstance(module, (nn.Linear, nn.Conv2d)):
+            mask = (module.weight != 0.0).float()
+            prune.CustomFromMask.apply(module, 'weight', mask)
+            if hasattr(module, 'bias'):
+                del module.bias
+                module.register_parameter("bias", None)
+    return model.state_dict()
 
 
 # Function for Training
@@ -427,6 +374,14 @@ def weight_init(m):
                 init.normal_(param.data)
 
 
+def get_iter_by_density(density, prune_perc) -> float:
+    import math
+    prune_perc = 1.0 - (prune_perc / 100.0)
+    num_iter = math.log(density) / math.log(prune_perc)
+
+    return int(math.floor(num_iter))
+
+
 if __name__ == "__main__":
 
     #from gooey import Gooey
@@ -435,7 +390,7 @@ if __name__ == "__main__":
     # Arguement Parser
     parser = argparse.ArgumentParser()
     parser.add_argument("--lr",
-                        default=1.2e-3,
+                        default=0.0012,
                         type=float,
                         help="Learning rate")
     parser.add_argument("--batch_size", default=60, type=int)
@@ -449,33 +404,33 @@ if __name__ == "__main__":
                         type=str,
                         help="lt | reinit")
     parser.add_argument("--gpu", default="0", type=str)
-    parser.add_argument("--dataset",
+    parser.add_argument("--data",
                         default="mnist",
                         type=str,
                         help="mnist | cifar10 | fashionmnist | cifar100")
+    parser.add_argument("--density", type=float, default=0.01)
     parser.add_argument(
         "--arch_type",
         default="fc1",
         type=str,
     )
     parser.add_argument("--prune_percent",
-                        default=10,
+                        default=20,
                         type=int,
                         help="Pruning percent")
     parser.add_argument("--prune_iterations",
                         default=35,
                         type=int,
                         help="Pruning iterations count")
-    parser.add_argument("-seed", default=1, type=int)
+    parser.add_argument("--seed", default=1, type=int)
 
     args = parser.parse_args()
 
     os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
 
-    #FIXME resample
     resample = False
 
-    # Looping Entire process
-    #for i in range(0, 5):
+    args.prune_iterations = get_iter_by_density(args.density,
+                                                args.prune_percent)
     main(args, ITE=1)
