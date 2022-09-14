@@ -156,8 +156,6 @@ def copeland_score(layer1: dict, layer2: dict) -> float:
     l1_out = layer1['dim_out']
     l2_in = layer2['dim_in']
     k_size = l2_in // l1_out
-    if k_size == 0:
-        k_size = 1
     l1deg = get_degrees(layer1['graph'])
     l2deg = get_degrees(layer2['graph'])
 

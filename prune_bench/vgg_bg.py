@@ -11,5 +11,7 @@ if __name__ == "__main__":
     for name, m in model.named_modules():
         if isinstance(m, (nn.Conv2d, nn.Linear)):
             layers.append(name)
-    print(layers)
-    print(pair_layers(layers))
+    print(models)
+    graph = torch.load(
+        "./results/density_0.01/cifar10/vgg16/SNIP/1/latest/graph.pth")
+    __import__('pdb').set_trace()

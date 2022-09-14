@@ -135,6 +135,8 @@ def generate_nx_graphs(weight: torch.Tensor,
         weight = weight.reshape(c_out, -1)
         weight = np.transpose(weight)
         assert weight.shape[1] == c_out
+    else:
+        weight = np.transpose(weight)
     dim_in, dim_out = weight.shape
     if offset == 0:
         idx_in_start = 0

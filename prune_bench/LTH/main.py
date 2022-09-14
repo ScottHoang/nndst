@@ -113,11 +113,16 @@ def main(args, ITE=0):
     make_mask(model)
 
     # Optimizer and Loss
-    optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4)
-    # optimizer = torch.optim.SGD(model.parameters(),
-    # lr=args.lr,
-    # momentum=0.9,
-    # weight_decay=5e-4)
+    # optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4)
+    optimizer = torch.optim.SGD(model.parameters(),
+                                lr=args.lr,
+                                momentum=0.9,
+                                weight_decay=5e-4)
+    lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        optimizer,
+        milestones=[int(args.end_iter / 2),
+                    int(args.end_iter * 3 / 4)],
+        last_epoch=-1)
     criterion = nn.CrossEntropyLoss()  # Default was F.nll_loss
 
     # Layer Looper
@@ -144,15 +149,24 @@ def main(args, ITE=0):
                                 resample=resample,
                                 reinit=False)
             original_initialization(mask, initial_state_dict)
-            optimizer = torch.optim.Adam(model.parameters(),
-                                         lr=args.lr,
-                                         weight_decay=1e-4)
+            # optimizer = torch.optim.Adam(model.parameters(),
+            # lr=args.lr,
+            # weight_decay=1e-4)
+            optimizer = torch.optim.SGD(model.parameters(),
+                                        lr=args.lr,
+                                        momentum=0.9,
+                                        weight_decay=5e-4)
+            lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
+                optimizer,
+                milestones=[int(args.epochs / 2),
+                            int(args.epochs * 3 / 4)],
+                last_epoch=-1)
         print(f"\n--- Pruning Level [{ITE}:{_ite}/{ITERATION}]: ---")
 
         # Print the table of Nonzeros in each layer
         comp1 = utils.print_nonzeros(model)
         comp[_ite] = comp1
-        pbar = tqdm(range(args.end_iter))
+        pbar = tqdm(range(args.end_iter), total=args.end_iter)
 
         df = collections.defaultdict(list)
         for iter_ in pbar:
@@ -183,6 +197,7 @@ def main(args, ITE=0):
                 pbar.set_description(
                     f'Train Epoch: {iter_}/{args.end_iter} Loss: {loss:.6f} Accuracy: {accuracy:.2f}% Best Accuracy: {best_accuracy:.2f}%'
                 )
+            lr_scheduler.step()
         df = pd.DataFrame.from_dict(df)
         df.to_csv(os.path.join(save_dir, "results.csv"))
 
@@ -389,13 +404,10 @@ if __name__ == "__main__":
 
     # Arguement Parser
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr",
-                        default=0.0012,
-                        type=float,
-                        help="Learning rate")
-    parser.add_argument("--batch_size", default=60, type=int)
+    parser.add_argument("--lr", default=0.1, type=float, help="Learning rate")
+    parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--start_iter", default=0, type=int)
-    parser.add_argument("--end_iter", default=100, type=int)
+    parser.add_argument("--end_iter", default=250, type=int)
     parser.add_argument("--print_freq", default=1, type=int)
     parser.add_argument("--valid_freq", default=1, type=int)
     parser.add_argument("--resume", action="store_true")
