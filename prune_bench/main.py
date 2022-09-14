@@ -365,7 +365,7 @@ def main():
 
         timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
         if not args.retrain_mask:
-            save_dir = os.path.join('results', f"density_{args.density}",
+            save_dir = os.path.join('/home/sliu/project_space/PaI_graph/LTH/', f"density_{args.density}",
                                     args.data, args.model, args.prune,
                                     str(args.seed), timestr)
         else:
