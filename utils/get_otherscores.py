@@ -25,10 +25,10 @@ def main(graph_path: str):
         # if f'{layer2}_copeland_score' in graph[layer1]:
         # continue
         if layer2 == 'layer4.0.downsample.0':
-        clscore = copeland_score(graph[layer1], graph[layer2])
-        overlap_coefs = channel_overlap_coefs(graph[layer2],
-                                              graph[layer1]['dim_out'])
-        graph[layer2]['overlap_coefs'] = overlap_coefs
+            clscore = copeland_score(graph[layer1], graph[layer2])
+            overlap_coefs = channel_overlap_coefs(graph[layer2],
+                                                  graph[layer1]['dim_out'])
+            graph[layer2]['overlap_coefs'] = overlap_coefs
         if i == 0:
             overlap_coefs = channel_overlap_coefs(graph[layer1], 3)
             graph[layer1]['overlap_coefs'] = overlap_coefs

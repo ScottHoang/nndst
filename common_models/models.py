@@ -8,13 +8,8 @@ __all__ = ['resnet18', 'resnet34', 'resnet50', 'vgg16', 'models']
 
 import os
 
-path1 = "./common_models/random_weights"
-path2 = "../common_models/random_weights"
-
-if os.path.isdir(path1):
-    RANDOM_PATH = path1
-else:
-    RANDOM_PATH = path2
+RANDOM_PATH = "/home/dnh754/nndst/common_models/random_weights/"
+os.makedirs(RANDOM_PATH, exist_ok=True)
 
 
 def get_name(model_name, num_classes, seed):

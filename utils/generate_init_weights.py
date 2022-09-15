@@ -17,7 +17,7 @@ if __name__ == "__main__":
 
     for model_name, fn in CM.models.items():
         for n in num_classes:
-            name = f"{model_name}_{n}.pth.tar"
+            name = f"{model_name}_c-{n}_seed-{seed}.pth.tar"
             path = os.path.join(dst, name)
             model = init(fn(pretrained=False, num_classes=n))
             torch.save(model.state_dict(), path)

@@ -3,6 +3,7 @@ import random
 
 import numpy as np
 import torch
+
 from lib.prune.phew import Utils
 
 
@@ -84,6 +85,15 @@ def generate_probability(parameters, verbose=True):
                 else:
                     pvals = [1.0 / par.shape[0]] * par.shape[0]
                 prob[layer_no].append(pvals)
+
+            p2_sum = np.abs(p2).reshape(p2.shape[0], p2.shape[1],
+                                        -1).sum(axis=-1)
+
+            p2_sum = p2_sum[:, :, None, None] if len(p2.shape) == 4 else p2_sum[:, the jk
+
+            p2 = p2 / p2_sum
+            p2 = p2.tolist()
+
             for i in range(p2.shape[0]):
                 kernel_prob[layer_no].append(kernel_probability(p2[i]))
             layer_no = layer_no + 1
