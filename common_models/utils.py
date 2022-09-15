@@ -1,5 +1,6 @@
 import math
 import random
+from typing import List
 
 import numpy as np
 import torch
@@ -39,3 +40,20 @@ def add_log_softmax(model):
         return nn.functional.log_softmax(output)
 
     model.register_forward_hook(hook)
+
+
+def stripping_bias(model: nn.Module, filters: List = None, verbose=True):
+    """stripping bias from some layers if filtered or all layers if not filters
+
+    :model: TODO
+    :filters: TODO
+    :returns: TODO
+
+    """
+    for m in model.modules():
+        if filters is None or m in filters:
+            if hasattr(m, 'bias'):
+                del m.bias
+                m.register_parameter('bias', None)
+                if verbose:
+                    print(f"found bias in {m}, removing it ....")
