@@ -90,12 +90,12 @@ def main(args, ITE=0):
     global model
     global mask
     model = models[args.arch_type](num_classes=num_classes, seed=args.seed)
-    for m in model.modules():
-        if isinstance(m, (nn.Linear, nn.Conv2d)):
-            if hasattr(m, 'bias'):
-                print(f"found bias in {m} removing it....")
-                del m.bias
-                m.register_parameter("bias", None)
+    # for m in model.modules():
+    # if isinstance(m, (nn.Linear, nn.Conv2d)):
+    # if hasattr(m, 'bias'):
+    # print(f"found bias in {m} removing it....")
+    # del m.bias
+    # m.register_parameter("bias", None)
     model = model.cuda()
     timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     save_dir = os.path.join(args.result_dir, f"density_{args.density}",
