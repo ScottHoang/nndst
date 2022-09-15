@@ -10,14 +10,12 @@ import os
 import time
 import warnings
 
+import lib.sparselearning
 import pandas as pd
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import torch.optim as optim
-from tqdm import tqdm
-
-import lib.sparselearning
 from lib import prune
 from lib.common_models.models import models as MODELS
 from lib.common_models.utils import add_log_softmax
@@ -26,6 +24,7 @@ from lib.sparselearning.utils import get_cifar100_dataloaders
 from lib.sparselearning.utils import get_cifar10_dataloaders
 from lib.sparselearning.utils import get_mnist_dataloaders
 from lib.sparselearning.utils import plot_class_feature_histograms
+from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=UserWarning)
 cudnn.benchmark = True

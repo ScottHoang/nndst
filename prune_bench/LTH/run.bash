@@ -9,7 +9,8 @@ for dense in $density; do
     for seed in $seeds; do
         for model in $models; do
             echo $model $seed $dense
-            python3 main.py --arch_type $model --data $d --seed $seed --density $dense --gpu $cuda
+            python3 main.py --arch_type $model --data $d --seed $seed --density $dense --gpu $cuda \
+                --result_dir "/home/sliu/project_space/PaI_graph/LTH/"
         done
     done
 done

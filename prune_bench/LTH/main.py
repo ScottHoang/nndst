@@ -21,11 +21,11 @@ import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
-from common_models import models
-from common_models.utils import set_seed
 from tqdm import tqdm
 
 import utils
+from common_models import models
+from common_models.utils import set_seed
 
 model = None
 mask = []
@@ -98,8 +98,9 @@ def main(args, ITE=0):
                 m.register_parameter("bias", None)
     model = model.cuda()
     timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
-    save_dir = os.path.join('results', f"density_{args.density}", args.data,
-                            args.arch_type, 'lth', str(args.seed), timestr)
+    save_dir = os.path.join(args.result_dir, f"density_{args.density}",
+                            args.data, args.arch_type, 'lth', str(args.seed),
+                            timestr)
     os.makedirs(save_dir, exist_ok=True)
 
     # Weight Initialization
@@ -404,6 +405,7 @@ if __name__ == "__main__":
 
     # Arguement Parser
     parser = argparse.ArgumentParser()
+    parser.add_argument('--result_dir', type=str, default='results')
     parser.add_argument("--lr", default=0.1, type=float, help="Learning rate")
     parser.add_argument("--batch_size", default=256, type=int)
     parser.add_argument("--start_iter", default=0, type=int)
