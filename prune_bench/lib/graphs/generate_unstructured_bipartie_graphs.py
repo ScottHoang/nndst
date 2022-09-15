@@ -216,7 +216,8 @@ def generate_bipartie_graphs(m: nn.Module) -> dict:
     neuron_network = {}
     for name, module in m.named_modules():
         if isinstance(module, (nn.Linear, nn.Conv2d)):
-            neuron_network[name] = module.weight_mask.detach().numpy()
+            weight = module.weight_mask * module.weight_orig
+            neuron_network[name] = weight.detach().numpy()
     return mlp_to_network(neuron_network)
 
 

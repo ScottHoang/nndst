@@ -12,16 +12,15 @@ import scipy as sp
 import torch
 import torch.nn as nn
 import torch_geometric as pyg
+from scipy.sparse import coo_array
 
 
 def get_eig_values(matrix: np.array) -> List[float]:
     """
     get the real eig of a square matrix
     """
-    adj_eigh_val, _ = sp.linalg.eig(matrix)
-    idx = adj_eigh_val.argsort()
-    adj_eigh_val = [i.real for i in adj_eigh_val[idx]]
-    return adj_eigh_val
+    adj_eigh_val, _ = sp.sparse.linalg.eigs(matrix, k=10, which='LR')
+    return adj_eigh_val.real
 
 
 def delta_s(eig_first: float, eig_second: float) -> float:
@@ -53,20 +52,22 @@ def ramanujan_score(layer: dict) -> Tuple[Tuple]:
     degree = pyg.utils.degree(graph.edge_index[0], graph.num_nodes)
     d_avg_l = degree[0:layer['dim_in']].mean()
     d_avg_r = degree[layer['dim_in']::].mean()
+
     try:
+        edge_index, weight = graph.edge_index.numpy(), graph.edge_attr.squeeze(
+        ).numpy()
+        num_nodes = graph.num_nodes
+        adj_matrix = coo_array(
+            (np.ones_like(weight), (edge_index[0], edge_index[1])),
+            shape=(num_nodes, num_nodes))
+        w_adj_matrix = coo_array((weight, (edge_index[0], edge_index[1])),
+                                 shape=(num_nodes, num_nodes))
 
-        m_eig_vals = get_eig_values(
-            pyg.utils.to_dense_adj(
-                graph.edge_index,
-                max_num_nodes=graph.num_nodes).squeeze().numpy())
-        w_eig_vals = get_eig_values(
-            pyg.utils.to_dense_adj(
-                graph.edge_index,
-                edge_attr=graph.edge_attr,
-                max_num_nodes=graph.num_nodes).squeeze().numpy())
+        m_eig_vals = get_eig_values(adj_matrix)
+        w_eig_vals = get_eig_values(w_adj_matrix)
 
-        t2_m, t1_m = m_eig_vals[-2], m_eig_vals[-1]
-        t2_w, t1_w = w_eig_vals[-2], w_eig_vals[-1]
+        t2_m, t1_m = m_eig_vals[1], m_eig_vals[0]
+        t2_w, t1_w = w_eig_vals[1], w_eig_vals[0]
 
         del_s_m = delta_s(t1_m, t2_m)
         del_r_m = delta_r(d_avg_l, d_avg_r, t2_m)

@@ -19,6 +19,8 @@ for prune in $prunes; do
     --optimizer sgd\
     --prune $prune\
     --sparse \
-    --density $dense
+    --density $dense\
+    --strip-bias \
+    --save_dir 'results_no_bias'
 done
 done

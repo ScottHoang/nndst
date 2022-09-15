@@ -44,10 +44,6 @@ def masked_parameters(model):
             mask = torch.ones_like(module.weight)
             prune.CustomFromMask.apply(module, 'weight', mask)
             yield module.weight_mask, module.weight_orig
-            if hasattr(module, 'bias'):
-                print(f"found bias in {module}, removing it ....")
-                del module.bias
-                module.register_parameter("bias", None)
 
 
 class Pruner:

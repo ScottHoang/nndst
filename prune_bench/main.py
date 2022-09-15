@@ -21,6 +21,7 @@ import lib.sparselearning
 from lib import prune
 from lib.common_models.models import models as MODELS
 from lib.common_models.utils import add_log_softmax
+from lib.common_models.utils import stripping_bias
 from lib.sparselearning.utils import get_cifar100_dataloaders
 from lib.sparselearning.utils import get_cifar10_dataloaders
 from lib.sparselearning.utils import get_mnist_dataloaders
@@ -239,6 +240,10 @@ def main():
                         default=17,
                         metavar='S',
                         help='random seed (default: 17)')
+    parser.add_argument('--save_dir',
+                        type=str,
+                        default='results',
+                        help='main saving dir')
     parser.add_argument(
         '--log-interval',
         type=int,
@@ -321,6 +326,10 @@ def main():
     parser.add_argument('--fix',
                         action='store_true',
                         help='Fix topology during training. Default: True.')
+    parser.add_argument(
+        '--strip-bias',
+        action='store_true',
+    )
 
     args = parser.parse_args()
     setup_logger(args)
@@ -358,6 +367,8 @@ def main():
             cls, cls_args = models[args.model]
             model = cls(num_classes=outputs, seed=args.seed).cuda()
             add_log_softmax(model)
+            if args.strip_bias:
+                stripping_bias(model)
 
         if args.mgpu:
             print('Using multi gpus')
@@ -365,11 +376,11 @@ def main():
 
         timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
         if not args.retrain_mask:
-            save_dir = os.path.join('results', f"density_{args.density}",
+            save_dir = os.path.join(args.save_dir, f"density_{args.density}",
                                     args.data, args.model, args.prune,
                                     str(args.seed), timestr)
         else:
-            save_dir = os.path.join('results', f"density_{args.density}",
+            save_dir = os.path.join(args.save_dir, f"density_{args.density}",
                                     args.data, args.model, args.prune,
                                     str(args.seed), 'latest')
 

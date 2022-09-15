@@ -14,3 +14,4 @@ analysis/graphs_eb/*
 analysis/results*/*
 */old_results/*
 prune_bench/LTH/results/*
+*/results*/*

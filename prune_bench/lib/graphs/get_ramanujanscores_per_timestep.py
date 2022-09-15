@@ -14,9 +14,8 @@ def process(graph_path: str):
     for (name, info) in tqdm(graphs.items(),
                              desc=osp.basename(graph_path),
                              total=len(graphs.keys())):
-        if 'ram_scores' not in info:
-            ram_scores = ram(info)
-            info['ram_scores'] = ram_scores
+        ram_scores = ram(info)
+        info['ram_scores'] = ram_scores
     torch.save(graphs, graph_path)
 
 
