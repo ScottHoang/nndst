@@ -1,4 +1,4 @@
-#!/bin.bash
+#!/bin/bash
 cuda=0
 d="cifar10"
 models="resnet34 vgg16"
