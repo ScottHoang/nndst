@@ -75,9 +75,9 @@ def resolve(args, kwargs):
 
 
 def try_load_random(model, path, seed, verbose=False):
-    try:
+    if os.path.isfile(path):
         model.load_state_dict(torch.load(path))
-    except:
+    else:
         print(f"{path} does not exists, generating one now")
         set_seed(seed)
         init(model)
