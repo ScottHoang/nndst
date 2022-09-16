@@ -1,5 +1,4 @@
-# Importing Libraries
-import argparse
+# Importing Libraries import argparse
 import collections
 import copy
 import json
@@ -21,14 +20,13 @@ import torchvision
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
 import torchvision.utils as vutils
+from common_models import models
+from common_models.utils import set_seed
 from tqdm import tqdm
 
 import utils
-from common_models import models
-from common_models.utils import set_seed
 
 model = None
-mask = []
 # Custom Libraries
 
 # Tensorboard initialization
@@ -88,7 +86,6 @@ def main(args, ITE=0):
 
     # Importing Network Architecture
     global model
-    global mask
     model = models[args.arch_type](num_classes=num_classes, seed=args.seed)
     # for m in model.modules():
     # if isinstance(m, (nn.Linear, nn.Conv2d)):
@@ -106,12 +103,11 @@ def main(args, ITE=0):
     # Weight Initialization
     # model.apply(weight_init)
 
+    # Making Initial Mask
+    make_mask(model)
     # Copying and Saving Initial State
     initial_state_dict = copy.deepcopy(model.state_dict())
     torch.save(initial_state_dict, os.path.join(save_dir, 'init.pth.tar'))
-
-    # Making Initial Mask
-    make_mask(model)
 
     # Optimizer and Loss
     # optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4)
@@ -149,10 +145,7 @@ def main(args, ITE=0):
             prune_by_percentile(args.prune_percent,
                                 resample=resample,
                                 reinit=False)
-            original_initialization(mask, initial_state_dict)
-            # optimizer = torch.optim.Adam(model.parameters(),
-            # lr=args.lr,
-            # weight_decay=1e-4)
+            original_initialization(initial_state_dict)
             optimizer = torch.optim.SGD(model.parameters(),
                                         lr=args.lr,
                                         momentum=0.9,
@@ -170,6 +163,11 @@ def main(args, ITE=0):
         pbar = tqdm(range(args.end_iter), total=args.end_iter)
 
         df = collections.defaultdict(list)
+        model_density = check_density(model)
+        save_dir = os.path.join(args.result_dir,
+                                f"density_{model_density:.2f}", args.data,
+                                args.arch_type, 'lth', str(args.seed), timestr)
+        os.makedirs(save_dir, exist_ok=True)
         for iter_ in pbar:
 
             # Frequency for Testing
@@ -181,7 +179,7 @@ def main(args, ITE=0):
                     best_accuracy = accuracy
                     torch.save(
                         {
-                            'state_dict': get_prune_models(model),
+                            'state_dict': model.state_dict(),
                             'epoch': iter_ + 1
                         }, os.path.join(save_dir, 'model.pth'))
 
@@ -209,9 +207,6 @@ def get_prune_models(model):
         if isinstance(module, (nn.Linear, nn.Conv2d)):
             mask = (module.weight != 0.0).float()
             prune.CustomFromMask.apply(module, 'weight', mask)
-            if hasattr(module, 'bias'):
-                del module.bias
-                module.register_parameter("bias", None)
     return model.state_dict()
 
 
@@ -227,14 +222,6 @@ def train(model, train_loader, optimizer, criterion):
         output = model(imgs)
         train_loss = criterion(output, targets)
         train_loss.backward()
-
-        # Freezing Pruned weights by making their gradients Zero
-        for name, p in model.named_parameters():
-            if 'weight' in name:
-                tensor = p.data.cpu().numpy()
-                grad_tensor = p.grad.data.cpu().numpy()
-                grad_tensor = np.where(tensor < EPS, 0, grad_tensor)
-                p.grad.data = torch.from_numpy(grad_tensor).to(device)
         optimizer.step()
     return train_loss.item()
 
@@ -259,18 +246,28 @@ def test(model, test_loader, criterion):
     return accuracy
 
 
+def check_density(model):
+
+    sum_list = 0
+    zero_sum = 0
+
+    for name, m in model.named_modules():
+        if hasattr(m, 'weight_mask'):
+            sum_list = sum_list + float(m.weight_orig.nelement())
+            zero_sum = zero_sum + float(torch.sum(m.weight_mask == 0))
+    print('* remain weight = ', 100 * (1 - zero_sum / sum_list), '%')
+
+    return 1 - zero_sum / sum_list
+
+
 # Prune by Percentile module
 def prune_by_percentile(percent, resample=False, reinit=False, **kwargs):
-    global step
-    global mask
+
     global model
 
-    # Calculate percentile value
-    step = 0
-    for name, param in model.named_parameters():
-
-        # We do not prune bias term
-        if 'weight' in name:
+    for name, module in model.named_modules():
+        if hasattr(module, 'weight_orig'):
+            param = module.weight_orig * module.weight_mask
             tensor = param.data.cpu().numpy()
             alive = tensor[np.nonzero(
                 tensor)]  # flattened array of nonzero values
@@ -278,47 +275,33 @@ def prune_by_percentile(percent, resample=False, reinit=False, **kwargs):
 
             # Convert Tensors to numpy and calculate
             weight_dev = param.device
-            new_mask = np.where(abs(tensor) < percentile_value, 0, mask[step])
+            new_mask = np.where(
+                abs(tensor) < percentile_value, 0,
+                module.weight_mask.cpu().numpy())
+            new_mask = torch.tensor(new_mask).to(weight_dev)
 
             # Apply new weight and mask
-            param.data = torch.from_numpy(tensor * new_mask).to(weight_dev)
-            mask[step] = new_mask
-            step += 1
-    step = 0
+            module.weight_mask.data.copy_(new_mask)
 
 
 # Function to make an empty mask of the same size as the model
+
+
 def make_mask(model):
-    global step
-    global mask
-    step = 0
-    for name, param in model.named_parameters():
-        if 'weight' in name:
-            step = step + 1
-    mask = [None] * step
-    step = 0
-    for name, param in model.named_parameters():
-        if 'weight' in name:
-            tensor = param.data.cpu().numpy()
-            mask[step] = np.ones_like(tensor)
-            step = step + 1
-    step = 0
+    for name, module in model.named_modules():
+        if hasattr(module, 'weight'):
+            masks = torch.ones_like(module.weight)
+            prune.CustomFromMask.apply(module, 'weight', masks)
 
 
-def original_initialization(mask_temp, initial_state_dict):
+def original_initialization(initial_state_dict):
     global model
 
-    step = 0
     for name, param in model.named_parameters():
-        if "weight" in name:
-            weight_dev = param.device
-            param.data = torch.from_numpy(
-                mask_temp[step] *
-                initial_state_dict[name].cpu().numpy()).to(weight_dev)
-            step = step + 1
-        if "bias" in name:
-            param.data = initial_state_dict[name]
-    step = 0
+        if 'weight_orig' in name:
+            param.data.copy_(initial_state_dict[name])
+        if 'bias' in name:
+            param.data.copy_(initial_state_dict[name])
 
 
 # Function for Initialization

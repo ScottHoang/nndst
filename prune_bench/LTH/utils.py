@@ -11,7 +11,10 @@ import torch
 #ANCHOR Print table of zeros and non-zeros count
 def print_nonzeros(model):
     nonzero = total = 0
-    for name, p in model.named_parameters():
+    for name, module in model.named_modules():
+        if not hasattr(module, 'weight_mask'):
+            continue
+        p = module.weight_mask * module.weight_orig
         tensor = p.data.cpu().numpy()
         nz_count = np.count_nonzero(tensor)
         total_params = np.prod(tensor.shape)
