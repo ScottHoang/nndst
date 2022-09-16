@@ -1,4 +1,5 @@
 # Importing Libraries import argparse
+import argparse
 import collections
 import copy
 import json
@@ -87,12 +88,6 @@ def main(args, ITE=0):
     # Importing Network Architecture
     global model
     model = models[args.arch_type](num_classes=num_classes, seed=args.seed)
-    # for m in model.modules():
-    # if isinstance(m, (nn.Linear, nn.Conv2d)):
-    # if hasattr(m, 'bias'):
-    # print(f"found bias in {m} removing it....")
-    # del m.bias
-    # m.register_parameter("bias", None)
     model = model.cuda()
     timestr = time.strftime('%Hh%Mm%Ss_on_%b_%d_%Y')
     save_dir = os.path.join(args.result_dir, f"density_{args.density}",
@@ -152,8 +147,10 @@ def main(args, ITE=0):
                                         weight_decay=5e-4)
             lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(
                 optimizer,
-                milestones=[int(args.epochs / 2),
-                            int(args.epochs * 3 / 4)],
+                milestones=[
+                    int(args.end_iter / 2),
+                    int(args.end_iter * 3 / 4)
+                ],
                 last_epoch=-1)
         print(f"\n--- Pruning Level [{ITE}:{_ite}/{ITERATION}]: ---")
 
@@ -289,7 +286,7 @@ def prune_by_percentile(percent, resample=False, reinit=False, **kwargs):
 
 def make_mask(model):
     for name, module in model.named_modules():
-        if hasattr(module, 'weight'):
+        if isinstance(module, (nn.Linear, nn.Conv2d)):
             masks = torch.ones_like(module.weight)
             prune.CustomFromMask.apply(module, 'weight', masks)
 
