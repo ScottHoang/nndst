@@ -297,8 +297,12 @@ def original_initialization(initial_state_dict):
     for name, param in model.named_parameters():
         if 'weight_orig' in name:
             param.data.copy_(initial_state_dict[name])
-        if 'bias' in name:
+        elif 'bias' in name:
             param.data.copy_(initial_state_dict[name])
+        elif 'weight' in name:
+            param.data.copy_(initial_state_dict[name])
+        else:
+            pass
 
 
 # Function for Initialization
