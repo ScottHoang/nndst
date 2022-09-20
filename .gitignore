@@ -13,5 +13,7 @@ analysis/graphs/*
 analysis/graphs_eb/*
 analysis/results*/*
 */old_results/*
-prune_bench/LTH/results/*
 */results*/*
+prune_bench/LTH_code_Original/data
+prune_bench/LTH_code_Original/result*
+prune_bench/LTH_code_Original/saved_masks

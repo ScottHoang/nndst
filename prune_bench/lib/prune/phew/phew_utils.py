@@ -89,8 +89,8 @@ def generate_probability(parameters, verbose=True):
             p2_sum = np.abs(p2).reshape(p2.shape[0], p2.shape[1],
                                         -1).sum(axis=-1)
 
-            p2_sum = p2_sum[:, :, None, None] if len(p2.shape) == 4 else p2_sum[:, the jk
-
+            p2_sum = p2_sum[:, :, None,
+                            None] if len(p2.shape) == 4 else p2_sum[:, :None]
             p2 = p2 / p2_sum
             p2 = p2.tolist()
 

@@ -18,6 +18,7 @@ import torch.nn as nn
 import torch.nn.utils.prune as prune
 import torch_geometric as pyg
 from common_models.models import models
+from common_models.utils import stripping_bias
 from torch import Tensor
 from torch_geometric.data import Data
 
@@ -229,17 +230,24 @@ def masked_parameters(model):
         if isinstance(module, (nn.Conv2d, nn.Linear)):
             mask = torch.ones_like(module.weight)
             prune.CustomFromMask.apply(module, 'weight', mask)
-            if hasattr(module, 'bias'):
-                del module.bias
-                module.register_parameter("bias", None)
     return model
 
 
 def process(path, model, num_classes, dst, seed=1):
     print(f'working on {path}')
+    weight = torch.load(path, map_location='cpu')['state_dict']
+    has_bias = False
+    for k in weight.keys():
+        if 'bias' in k:
+            has_bias = True
+            break
     m = models[model](num_classes, seed=seed)
+    if not has_bias:
+        print("weight has no bias!")
+        stripping_bias(m, verbose=False)
+
     m = masked_parameters(m)
-    m.load_state_dict(torch.load(path, map_location='cpu')['state_dict'])
+    m.load_state_dict(weight)
 
     graphs = generate_bipartie_graphs(m)
     torch.save(graphs, dst)

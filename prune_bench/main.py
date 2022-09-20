@@ -6,16 +6,19 @@ import copy
 import hashlib
 import json
 import logging
+import math
 import os
 import time
 import warnings
 
-import lib.sparselearning
 import pandas as pd
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn.functional as F
 import torch.optim as optim
+from tqdm import tqdm
+
+import lib.sparselearning
 from lib import prune
 from lib.common_models.models import models as MODELS
 from lib.common_models.utils import add_log_softmax
@@ -24,7 +27,6 @@ from lib.sparselearning.utils import get_cifar100_dataloaders
 from lib.sparselearning.utils import get_cifar10_dataloaders
 from lib.sparselearning.utils import get_mnist_dataloaders
 from lib.sparselearning.utils import plot_class_feature_histograms
-from tqdm import tqdm
 
 warnings.filterwarnings("ignore", category=UserWarning)
 cudnn.benchmark = True
@@ -202,7 +204,7 @@ def main():
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size',
                         type=int,
-                        default=128,
+                        default=256,
                         metavar='N',
                         help='input batch size for training (default: 100)')
     parser.add_argument('--test-batch-size',
@@ -433,12 +435,12 @@ def main():
         with open(os.path.join(save_dir, 'config.txt'), 'w') as f:
             json.dump(args.__dict__, f, indent=2)
 
-        save_checkpoint(model.state_dict(),
-                        os.path.join(save_dir, "init.pth.tar"))
+        # save_checkpoint(model.state_dict(),
+        # os.path.join(save_dir, "init.pth.tar"))
         best_acc = 0.0
         acc = collections.defaultdict(list)
 
-        for epoch in range(1, args.epochs * args.multiplier + 1):
+        for epoch in range(1, args.epochs + 1):
 
             t0 = time.time()
             loss = train(args, model, device, train_loader, optimizer, epoch,
@@ -461,7 +463,6 @@ def main():
                     {
                         'epoch': epoch + 1,
                         'state_dict': model.state_dict(),
-                        'optimizer': optimizer.state_dict(),
                     },
                     filename=os.path.join(save_dir, 'model.pth'))
 
@@ -469,6 +470,20 @@ def main():
                 'Current learning rate: {0}. Time taken for epoch: {1:.2f} seconds.\n'
                 .format(optimizer.param_groups[0]['lr'],
                         time.time() - t0))
+            if math.isnan(loss):
+                print("bad mask! leaving early!")
+                break
+
+        if len(acc['epoch']) < args.epochs:
+            pad = [float('nan')] * (args.epochs - len(acc['epoch']))
+            acc['val_acc'].extend([acc['val_acc'][-1]] *
+                                  (args.epochs - len(acc['epoch'])))
+            acc['test_acc'].extend([acc['test_acc'][-1]] *
+                                   (args.epochs - len(acc['epoch'])))
+            acc['train_loss'].extend([acc['train_loss'][-1]] *
+                                     (args.epochs - len(acc['epoch'])))
+            acc['epoch'].extend(
+                list(range(acc['epoch'][-1] + 1, args.epochs + 1)))
 
         df = pd.DataFrame.from_dict(acc)
         df.to_csv(os.path.join(save_dir, "results.csv"))
