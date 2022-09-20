@@ -21,7 +21,7 @@ seed='3'
 prunes="SNIP GraSP SynFlow ERK Rand iterSNIP" #PHEW"
 density="0.01 0.05 0.1 0.2 0.4"
 skip_if_exist=true # if directory exited, skip if true otherwise generate another instance within
-save_dir="/home/sliu/project_space/PaI_graph/LTH/vgg16_seed2/"
+save_dir="/home/sliu/project_space/PaI_graph/LTH/vgg16_seed3/"
 for dense in $density; do
 for prune in $prunes; do
     if [ ! -d "$save_dir/density_$dense/$d/$model/$prune/$seed" ] || [ $skip_if_exist != true ] ;
