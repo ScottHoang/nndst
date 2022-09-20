@@ -32,7 +32,7 @@ for prune in $prunes; do
 	--optimizer sgd\
 	--prune $prune\
 	--sparse \
-	--density $dense
+	--density $dense \
 	--save_dir $save_dir
     fi
 done
