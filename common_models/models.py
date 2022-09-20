@@ -8,7 +8,7 @@ __all__ = ['resnet18', 'resnet34', 'resnet50', 'vgg16', 'models']
 
 import os
 
-RANDOM_PATH = "/home/dnh754/nndst/common_models/random_weights/"
+RANDOM_PATH = "/home/sliu/project_space/PaI_graph/LTH/saved_initialization/"
 os.makedirs(RANDOM_PATH, exist_ok=True)
 
 
