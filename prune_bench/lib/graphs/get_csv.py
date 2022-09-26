@@ -64,23 +64,27 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
     """
     layers_df = collections.defaultdict(list)
     for file in files:
-        _, density, dataset, model, prune_type, seed, *_ = file.split('/')
+
+        density, dataset, model, prune_type, seed, directory, _ = file.split(
+            '/')[-7::]
         graphs = torch.load(file)
         pairs = pair_layers(list(graphs.items()))
         for i, (layer, info) in enumerate(graphs.items()):
-            if 'ram_scores' in info:
-                (s_m, r_m, t1m), (s_w, r_w, t1w) = info['ram_scores']
-            else:
-                (s_m, r_m, t1m), (s_w, r_w, t1w) = ramanujan_score(info)
+            s_m, sm_ub, r_m, rm_ub, t1m, t2m = info['ram_scores']
+            i_sm, i_rm, ism_norm, irm_norm = info['imsg']
             layers_df['prune_type'].append(prune_type)
             layers_df['layer'].append(layer)
             layers_df['sparsity'].append(info['sparsity'])
             layers_df['sm'].append(s_m)
+            layers_df['sm_ub'].append(sm_ub)
             layers_df['rm'].append(r_m)
-            layers_df['sw'].append(s_w)
-            layers_df['rw'].append(r_w)
+            layers_df['rm_ub'].append(rm_ub)
+            layers_df['ism'].append(i_sm)
+            layers_df['irm'].append(i_rm)
+            layers_df['ism_norm'].append(ism_norm)
+            layers_df['irm_norm'].append(irm_norm)
             layers_df['t1m'].append(t1m)
-            layers_df['t1w'].append(t1w)
+            layers_df['t2m'].append(t2m)
 
             related_pairs = find_related_pair(layer, pairs)
             if related_pairs:
@@ -94,7 +98,11 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
                 layers_df['copeland_score'].append(0)
                 layers_df['compatibility'].append(0)
                 layers_df['overlap_coefs'].append(0)
-    folder, density, dataset, model, prune_type, seed, *_ = files[0].split('/')
+    density, dataset, model, prune_type, seed, directory, _ = file.split(
+        '/')[-7::]
+    # TODO check this please
+    folder = file.split('/')[0:-7]
+    folder = '/'.join(folder)
     name = f"graph_seed-{seed}"
     layers_df = pd.DataFrame.from_dict(layers_df)
     if write:
@@ -110,7 +118,8 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
     """
     summary = collections.defaultdict(list)
     for file in files:
-        _, density, dataset, model, prune_type, seed, *_ = file.split('/')
+        density, dataset, model, prune_type, seed, directory, _ = file.split(
+            '/')[-7::]
         df = pd.read_csv(file)
         df = df.sort_values(by=['epoch'])
         keys = df.keys()
@@ -118,7 +127,10 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
             summary[f'{k}'].extend(df[k].tolist())
         summary['prune_type'].extend([prune_type] * len(df.index))
 
-    folder, density, dataset, model, prune_type, seed, *_ = files[0].split('/')
+    density, dataset, model, prune_type, seed, directory, _ = file.split(
+        '/')[-7::]
+    folder = file.split('/')[0:-7]
+    folder = '/'.join(folder)
     summary = pd.DataFrame.from_dict(summary)
     name = f"summary-{seed}"
     if write:
@@ -126,8 +138,7 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
     return summary
 
 
-if __name__ == "__main__":
-    _, path = sys.argv
+def process(path):
     prune_type = os.listdir(path)
     graphs = collections.defaultdict(list)
     results = collections.defaultdict(list)
@@ -137,10 +148,43 @@ if __name__ == "__main__":
         subfolder = osp.join(path, p)
         seeds = os.listdir(subfolder)
         for i, seed in enumerate(seeds):
-            graphs[seed].append(
-                osp.join(subfolder, seed, 'latest', 'graph.pth'))
-            results[seed].append(
-                osp.join(subfolder, seed, 'latest', 'results.csv'))
+            gp = osp.join(subfolder, seed, 'latest', 'graph.pth')
+            rp = osp.join(subfolder, seed, 'latest', 'results.csv')
+            if osp.isfile(gp):
+                graphs[seed].append(
+                    osp.join(subfolder, seed, 'latest', 'graph.pth'))
+            else:
+                print(f'missing {gp}')
+            if osp.isfile(rp):
+                results[seed].append(
+                    osp.join(subfolder, seed, 'latest', 'results.csv'))
+            else:
+                print(f'missing {rp}')
     for seed in graphs.keys():
         generate_graph_csv(graphs[seed], True)
         generate_perf_csv(results[seed], True)
+
+
+if __name__ == "__main__":
+    arg = sys.argv
+    multiprocess = 4
+    result_dir = arg[1]  # your top-level result dir
+
+    all_paths = []
+    for density in os.listdir(result_dir):
+        for dataset in os.listdir(osp.join(result_dir, density)):
+            for model in os.listdir(osp.join(result_dir, density, dataset)):
+                path = osp.join(result_dir, density, dataset, model)
+                print(f'found {path}')
+                all_paths.append(path)
+    for i in range(0, len(all_paths), multiprocess):
+        jobs = []
+        for j in range(min(multiprocess, len(all_paths) - i)):
+            print(f"working on {all_paths[i+j]}")
+            process(all_paths[i + j])
+            # job = Process(target=process, args=(all_paths[i + j], ))
+            # job.start()
+            # jobs.append(job)
+
+        # for j in jobs:
+        # j.join()

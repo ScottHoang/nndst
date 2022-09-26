@@ -217,7 +217,10 @@ def generate_bipartie_graphs(m: nn.Module) -> dict:
     neuron_network = {}
     for name, module in m.named_modules():
         if isinstance(module, (nn.Linear, nn.Conv2d)):
-            weight = module.weight_mask * module.weight_orig
+            if hasattr(module, 'weight_mask'):
+                weight = module.weight_mask * module.weight_orig
+            else:
+                weight = module.weight
             neuron_network[name] = weight.detach().numpy()
     return mlp_to_network(neuron_network)
 
@@ -241,7 +244,7 @@ def process(path, model, num_classes, dst, seed=1):
         if 'bias' in k:
             has_bias = True
             break
-    m = models[model](num_classes, seed=seed)
+    m = models[model](num_classes=num_classes, seed=seed)
     if not has_bias:
         print("weight has no bias!")
         stripping_bias(m, verbose=False)

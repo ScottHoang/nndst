@@ -2,6 +2,7 @@ import json
 import os
 import os.path as osp
 import sys
+from multiprocessing import Process
 
 import torch
 from generate_unstructured_bipartie_graphs import process as generate_unstructured_graphs
@@ -55,30 +56,31 @@ def check_others(graph_path):
     return True
 
 
-def check(file, dst, seed):
+def check(file, dst, seed, model, num_classes):
 
     tgt = file.replace("model.pth", "graph.pth")
     if not check_file(tgt):
         generate_unstructured_graphs(file, model, num_classes, tgt, seed)
 
-    if not check_ram(tgt):
-        print("generate ram score")
-        generate_ram_score(tgt)
+    # if not check_ram(tgt):
+    print("generate ram score")
+    generate_ram_score(tgt)
 
-    if not check_others(tgt):
-        print("generate other score")
-        generate_scores(tgt)
+    # if not check_others(tgt):
+    # # print("generate other score")
+    # generate_scores(tgt)
 
 
-if __name__ == "__main__":
-    _, path = sys.argv
-    ##
-    prunes = "SNIP GraSP SynFlow ERK Rand iterSNIP" #PHEW"
+def process(path):
+    prunes = "SNIP GraSP SynFlow ERK Rand iterSNIP lth"  #PHEW"
     prunes = prunes.split(' ')
     # os.makedirs(dst, exist_ok=True)
     ##
     for p in prunes:
         if 'csv' in p:
+            continue
+        if not osp.isdir(osp.join(path, p)):
+            print(f"missing {p}")
             continue
         link_latest(osp.join(path, p))
         seeds = os.listdir(osp.join(path, p))
@@ -99,4 +101,32 @@ if __name__ == "__main__":
             elif dataset == 'cifar100':
                 num_classes = 100
 
-            check(file, osp.join(path, p, str(s), 'latest'), s)
+            check(file, osp.join(path, p, str(s), 'latest'), int(s), model,
+                  num_classes)
+
+
+if __name__ == "__main__":
+    arg = sys.argv
+    multiprocess = 4
+    result_dir = arg[1]  # your top-level result dir
+
+    all_paths = []
+    for density in os.listdir(result_dir):
+        for dataset in os.listdir(osp.join(result_dir, density)):
+            if dataset == 'cifar100':
+                continue
+            for model in os.listdir(osp.join(result_dir, density, dataset)):
+                path = osp.join(result_dir, density, dataset, model)
+                print(f'found {path}')
+                all_paths.append(path)
+    for i in range(0, len(all_paths), multiprocess):
+        jobs = []
+        for j in range(min(multiprocess, len(all_paths) - i)):
+            print(f"working on {all_paths[i+j]}")
+            # process(all_paths[i + j])
+            job = Process(target=process, args=(all_paths[i + j], ))
+            job.start()
+            jobs.append(job)
+
+        for j in jobs:
+            j.join()

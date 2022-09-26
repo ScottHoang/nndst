@@ -2,6 +2,7 @@
 File: scores.py
 Description: get various score criterias
 """
+import collections
 import math
 from typing import List
 from typing import Tuple
@@ -15,68 +16,95 @@ import torch_geometric as pyg
 from scipy.sparse import coo_array
 
 
-def get_eig_values(matrix: np.array) -> List[float]:
+def get_eig_values(matrix: np.array, k: int = 3) -> List[float]:
     """
     get the real eig of a square matrix
+    for bi-graph, the third largest eig denotes connectivity
     """
-    adj_eigh_val, _ = sp.sparse.linalg.eigs(matrix, k=10, which='LR')
-    return adj_eigh_val.real
+    adj_eigh_val, _ = sp.sparse.linalg.eigsh(matrix, k=k, which='LM')
+    abs_eig = [abs(i) for i in adj_eigh_val]
+    abs_eig.sort(reverse=True)
+    return abs_eig
 
 
 def delta_s(eig_first: float, eig_second: float) -> float:
     """
-    calc the change in eig based on https://proceedings.mlr.press/v162/pal22a.html
+    calc the change in eig
     """
     if eig_first < 1:
         return -1
-    return (2 * math.sqrt(eig_first - 1) - eig_second) / eig_second
+    ub = 2 * math.sqrt(eig_first - 1)
+    return ub - eig_second, ub
 
 
 def delta_r(avg_deg_left: float, avg_deg_right: float,
             eig_second: float) -> float:
     """
-    calc the change in degree based on https://proceedings.mlr.press/v162/pal22a.html
+    calc the change in degree
     """
-    if avg_deg_left < 1 or avg_deg_right < 1:
-        return -1
-    return (math.sqrt(avg_deg_left - 1) + math.sqrt(avg_deg_right - 1) -
-            eig_second) / eig_second
+    ub = math.sqrt(avg_deg_left - 1) + math.sqrt(avg_deg_right - 1)
+    return ub - eig_second, ub
 
 
-def ramanujan_score(layer: dict) -> Tuple[Tuple]:
+def filter_zero_degree(graph: pyg.data.Data,
+                       n: int) -> Tuple[pyg.data.Data, int]:
     """
-    folowing the methodology outline in https://proceedings.mlr.press/v162/pal22a.html
-    computes the weighted and unweighted change in degree (del_r) and change in eigenvalues (del_s)
+    filter zero degree so not to affect d_avg_l/d_avg_r
+    """
+    degree = pyg.utils.degree(graph.edge_index[0], graph.num_nodes)
+
+    non_zero_mask = degree != 0.0
+    if non_zero_mask.sum() == degree.size(0):
+        return graph, n
+
+    dim_in = non_zero_mask[0:n].sum()
+    node_to_keep = torch.nonzero(non_zero_mask).squeeze()
+    subgraph = pyg.utils.subgraph(node_to_keep,
+                                  graph.edge_index,
+                                  graph.edge_attr,
+                                  num_nodes=graph.num_nodes,
+                                  relabel_nodes=True)
+
+    subgraph = pyg.data.Data(edge_index=subgraph[0],
+                             edge_attr=subgraph[1],
+                             num_nodes=node_to_keep.size(0))
+    return subgraph, dim_in
+
+
+def ramanujan_score(layer: dict) -> Tuple[float]:
+    """
+    compute the spectral gap base on ramanujan principle.
+    return two different estimation and the two eig values:
+        The first estimate the differences of bound between the first and second eig values
+        The second estimate the differences of bound between avg degree and second eig values  
     """
     graph = layer['graph']
-    degree = pyg.utils.degree(graph.edge_index[0], graph.num_nodes)
-    d_avg_l = degree[0:layer['dim_in']].mean()
-    d_avg_r = degree[layer['dim_in']::].mean()
 
-    try:
-        edge_index, weight = graph.edge_index.numpy(), graph.edge_attr.squeeze(
-        ).numpy()
+    dim_in = layer['dim_in']
+    graph, dim_in = filter_zero_degree(graph, dim_in)
+
+    degree = pyg.utils.degree(graph.edge_index[0], graph.num_nodes)
+
+    d_avg_l = degree[0:dim_in].mean()
+    d_avg_r = degree[dim_in::].mean()
+    if d_avg_l >= 3 and d_avg_r >= 3:
+        edge_index = graph.edge_index.numpy()
         num_nodes = graph.num_nodes
         adj_matrix = coo_array(
-            (np.ones_like(weight), (edge_index[0], edge_index[1])),
-            shape=(num_nodes, num_nodes))
-        w_adj_matrix = coo_array((weight, (edge_index[0], edge_index[1])),
-                                 shape=(num_nodes, num_nodes))
-
+            (np.ones_like(edge_index[0]), (edge_index[0], edge_index[1])),
+            shape=(num_nodes, num_nodes),
+            dtype=np.float32)
         m_eig_vals = get_eig_values(adj_matrix)
-        w_eig_vals = get_eig_values(w_adj_matrix)
+        t2_m, t1_m = m_eig_vals[-1], m_eig_vals[0]
+        sm, sm_ub = delta_s(t1_m, t2_m)
+        rm, rm_ub = delta_r(d_avg_l, d_avg_r, t2_m)
 
-        t2_m, t1_m = m_eig_vals[1], m_eig_vals[0]
-        t2_w, t1_w = w_eig_vals[1], w_eig_vals[0]
+    else:
+        sm = sm_ub = rm = rm_ub = None
+        t1_m = t2_m = None
 
-        del_s_m = delta_s(t1_m, t2_m)
-        del_r_m = delta_r(d_avg_l, d_avg_r, t2_m)
-        del_s_w = delta_s(t1_w, t2_w)
-        del_r_w = delta_r(d_avg_l, d_avg_r, t2_w)
-
-        return (del_s_m, del_r_m, t1_m), (del_s_w, del_r_w, t1_w)
-    except:
-        return (-1, -1, -1), (-1, -1, -1)
+    return (sm, sm_ub, rm, rm_ub, t1_m, t2_m)
+    # layer collapsed we skip calculation
 
 
 def pair_layers(layernames: Union[List[str], List[Tuple]]) -> List[str]:
@@ -159,7 +187,6 @@ def copeland_score(layer1: dict, layer2: dict) -> float:
     k_size = l2_in // l1_out
     l1deg = get_degrees(layer1['graph'])
     l2deg = get_degrees(layer2['graph'])
-
     if l1deg is None or l2deg is None:
         return 0.0
     in_deg = l1deg[-l1_out::]
@@ -234,3 +261,88 @@ def compatibility_ratio(layer1: dict, layer2: dict) -> float:
     compatibility = (in_mask
                      & out_mask).float().sum().item() / in_mask.sum().item()
     return compatibility
+
+
+def connectivity_bound(layer: dict) -> float:
+    """Get the connectivity 1144bound of an irregular graph.
+    There are 2 bounds we are interested in.
+    1. the first eig value of the incident matrix (this is returned by the ramanujan_score function)
+    2. from Ramanujan property, d-regularity can be estimated at sqrt(1-d_avg_left) +
+    sqrt(1-d_avg_right)
+    :layer: TODO
+    :returns: return the estimated bound 
+
+    """
+    graph = layer['graph']
+    degree = pyg.utils.degree(graph.edge_index[0], graph.num_nodes)
+    d_avg_l = degree[0:layer['dim_in']].mean()
+    d_avg_r = degree[layer['dim_in']::].mean()
+    return math.sqrt(d_avg_l - 1) + math.sqrt(d_avg_r - 1)
+
+
+def iterative_mean_spectral_gap(layer: dict):
+    """Calculate the total variance of bounds on every sub-graph of layers that has at-least
+    d-in/out degree
+
+    :layer: TODO
+    :returns: TODO
+
+    """
+    sms = []
+    sms_norm = []
+    rms = []
+    rms_norm = []
+    for left_regular_subgraph in find_d_left_regular(layer):
+        ram_scores = ramanujan_score(left_regular_subgraph)
+
+        if ram_scores[0] == None:  # == (-1, -1, -1, 0, -1):
+            continue
+        else:
+            sms.append(ram_scores[0])
+            sms_norm.append(ram_scores[0] / ram_scores[1])
+            rms.append(ram_scores[2])
+            rms_norm.append(ram_scores[2] / ram_scores[3])
+    if len(sms) == 0 and len(rms) == 0:
+        return None, None, None, None
+    mean_sm = sum(sms) / len(sms)
+    mean_rm = sum(rms) / len(rms)
+    mean_rm_norm = sum(rms_norm) / len(rms)
+    mean_sm_norm = sum(sms_norm) / len(rms)
+    return mean_sm, mean_rm, mean_sm_norm, mean_rm_norm
+
+
+def find_d_left_regular(layer: dict, mindegree: int = 3):
+    """return a subgraph of graph which contains at minimum d in/out degree
+
+    :returns: TODO
+
+    """
+    graph = layer['graph']
+    degree = pyg.utils.degree(graph.edge_index[0], graph.num_nodes)
+    d_l = degree[0:layer['dim_in']]
+    d_r = degree[layer['dim_in']::]
+    degrees = collections.Counter(d_l.tolist())
+    for degree, count in degrees.items():
+        if count < mindegree or degree == 0.0: continue
+        node_mask = d_l == degree
+        non_zero_idx = torch.nonzero(node_mask).squeeze()
+
+        right_nodes = torch.arange(d_r.size(0)) + layer['dim_in']
+        node_to_keep = torch.cat([non_zero_idx, right_nodes], dim=0)
+        # d-left regular bipartie graph
+        subgraph = pyg.utils.subgraph(node_to_keep,
+                                      graph.edge_index,
+                                      graph.edge_attr,
+                                      num_nodes=graph.num_nodes,
+                                      relabel_nodes=True)
+        ret = {
+            'dim_in':
+            count,
+            'graph':
+            pyg.data.Data(
+                edge_index=subgraph[0],
+                edge_attr=subgraph[1],
+                num_nodes=node_to_keep.size(0),
+            ),
+        }
+        yield ret
