@@ -66,9 +66,9 @@ def check(file, dst, seed, model, num_classes):
     print("generate ram score")
     generate_ram_score(tgt)
 
-    # if not check_others(tgt):
-    # # print("generate other score")
-    # generate_scores(tgt)
+    if not check_others(tgt):
+        # print("generate other score")
+        generate_scores(tgt)
 
 
 def process(path):
