@@ -46,8 +46,9 @@ def delta_r(avg_deg_left: float, avg_deg_right: float,
     return ub - eig_second, ub
 
 
-def random_bound(eig_second: float, total_edges: int, total_nodes,
-                 avg_left_degree: float, num_left: int, num_right: int):
+def random_bound(eig_second: float, total_edges: int, dim_in: int,
+                 dim_out: int, avg_left_degree: float, num_left: int,
+                 num_right: int):
     """determine if graph can be considered a random graph.
     function is given as:
         (\hat{\mu)^2/4 + 1)*sqrt(num_left*num_right) - abs(total_edges - davg/n * num_left *
@@ -63,9 +64,10 @@ def random_bound(eig_second: float, total_edges: int, total_nodes,
 
     """
     ls = (eig_second**2 / 4 + 1) * math.sqrt(num_left * num_right)
-    rs = abs(total_edges - (avg_left_degree / total_nodes) *
+    rs = abs(total_edges - (avg_left_degree / dim_out) *
              (num_left * num_right))
-    return (ls - rs) / total_edges
+    ret = (ls - rs) / (dim_in * dim_out)
+    return ret
 
 
 def filter_zero_degree(graph: pyg.data.Data,
@@ -90,6 +92,7 @@ def filter_zero_degree(graph: pyg.data.Data,
     subgraph = pyg.data.Data(edge_index=subgraph[0],
                              edge_attr=subgraph[1],
                              num_nodes=node_to_keep.size(0))
+
     return subgraph, dim_in
 
 
@@ -121,9 +124,13 @@ def ramanujan_score(layer: dict) -> Tuple[float]:
         sm, sm_ub = delta_s(t1_m, t2_m)
         rm, rm_ub = delta_r(d_avg_l, d_avg_r, t2_m)
         expansion_ratio = (degree.size(0) - dim_in) / dim_in
-        randomness_factor = random_bound(t2_m, graph.edge_index.size(1),
-                                         graph.num_nodes, d_avg_l, dim_in,
-                                         degree.size(0) - dim_in)
+        if 'dim_out' in layer:
+            randomness_factor = random_bound(t2_m, graph.edge_index.size(1),
+                                             layer['dim_in'], layer['dim_out'],
+                                             d_avg_l, dim_in,
+                                             degree.size(0) - dim_in)
+        else:
+            randomness_factor = None
     else:
         sm = sm_ub = rm = rm_ub = None
         t1_m = t2_m = None
@@ -331,7 +338,7 @@ def iterative_mean_spectral_gap(layer: dict):
             sms_norm.append(ram_scores[0] / ram_scores[1])
             rms.append(ram_scores[2])
             rms_norm.append(ram_scores[2] / ram_scores[3])
-            expansion_ratios.append(ram_scores[-1])
+            expansion_ratios.append(ram_scores[-2])
     if len(sms) == 0 and len(rms) == 0:
         return None, None, None, None, None
     mean_sm = sum(sms) / len(sms)
