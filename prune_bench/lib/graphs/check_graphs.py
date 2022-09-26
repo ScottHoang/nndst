@@ -20,10 +20,10 @@ def check_file(graph_path):
     """
     try:
         graph = torch.load(graph_path)
-        print(f"{graph_path} is available")
+        print(f"\t {graph_path} is available")
         return True
     except:
-        print(f"{graph_path} is not available")
+        print(f"\t {graph_path} is not available")
         return False
 
 
@@ -35,10 +35,13 @@ def check_ram(graph_path):
 
     """
     graph = torch.load(graph_path)
+
     for name, info in graph.items():
         if 'ram_scores' not in info:
+            print(f"\t\t missing ram score in {graph_path}")
             return False
-    return True
+        else:
+            return True
 
 
 def check_others(graph_path):
@@ -63,7 +66,7 @@ def check(file, dst, seed, model, num_classes):
         generate_unstructured_graphs(file, model, num_classes, tgt, seed)
 
     # if not check_ram(tgt):
-    print("generate ram score")
+    # print("generate ram score")
     generate_ram_score(tgt)
 
     if not check_others(tgt):

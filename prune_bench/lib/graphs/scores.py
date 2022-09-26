@@ -98,12 +98,14 @@ def ramanujan_score(layer: dict) -> Tuple[float]:
         t2_m, t1_m = m_eig_vals[-1], m_eig_vals[0]
         sm, sm_ub = delta_s(t1_m, t2_m)
         rm, rm_ub = delta_r(d_avg_l, d_avg_r, t2_m)
+        expansion_ratio = (degree.size(0) - dim_in) / dim_in
 
     else:
         sm = sm_ub = rm = rm_ub = None
         t1_m = t2_m = None
+        expansion_ratio = None
 
-    return (sm, sm_ub, rm, rm_ub, t1_m, t2_m)
+    return (sm, sm_ub, rm, rm_ub, t1_m, t2_m, expansion_ratio)
     # layer collapsed we skip calculation
 
 
@@ -292,6 +294,7 @@ def iterative_mean_spectral_gap(layer: dict):
     sms_norm = []
     rms = []
     rms_norm = []
+    expansion_ratios = []
     for left_regular_subgraph in find_d_left_regular(layer):
         ram_scores = ramanujan_score(left_regular_subgraph)
 
@@ -302,13 +305,17 @@ def iterative_mean_spectral_gap(layer: dict):
             sms_norm.append(ram_scores[0] / ram_scores[1])
             rms.append(ram_scores[2])
             rms_norm.append(ram_scores[2] / ram_scores[3])
+            expansion_ratios.append(ram_scores[-1])
     if len(sms) == 0 and len(rms) == 0:
-        return None, None, None, None
+        return None, None, None, None, None
     mean_sm = sum(sms) / len(sms)
     mean_rm = sum(rms) / len(rms)
     mean_rm_norm = sum(rms_norm) / len(rms)
     mean_sm_norm = sum(sms_norm) / len(rms)
-    return mean_sm, mean_rm, mean_sm_norm, mean_rm_norm
+    max_ep = max(expansion_ratios)
+    mean_ep = sum(expansion_ratios) / len(expansion_ratios)
+    return mean_sm, mean_rm, mean_sm_norm, mean_rm_norm, len(
+        sms), max_ep, mean_ep
 
 
 def find_d_left_regular(layer: dict, mindegree: int = 3):

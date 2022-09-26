@@ -70,8 +70,8 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
         graphs = torch.load(file)
         pairs = pair_layers(list(graphs.items()))
         for i, (layer, info) in enumerate(graphs.items()):
-            s_m, sm_ub, r_m, rm_ub, t1m, t2m = info['ram_scores']
-            i_sm, i_rm, ism_norm, irm_norm = info['imsg']
+            s_m, sm_ub, r_m, rm_ub, t1m, t2m, ep = info['ram_scores']
+            i_sm, i_rm, ism_norm, irm_norm, i_max_ep, i_mean_ep = info['imsg']
             layers_df['prune_type'].append(prune_type)
             layers_df['layer'].append(layer)
             layers_df['sparsity'].append(info['sparsity'])
@@ -85,6 +85,9 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
             layers_df['irm_norm'].append(irm_norm)
             layers_df['t1m'].append(t1m)
             layers_df['t2m'].append(t2m)
+            layers_df['ep'].append(ep)
+            layers_df['imax_ep'].append(i_max_ep)
+            layers_df['i_mean_ep'].append(i_mean_ep)
 
             related_pairs = find_related_pair(layer, pairs)
             if related_pairs:
@@ -173,6 +176,8 @@ if __name__ == "__main__":
     all_paths = []
     for density in os.listdir(result_dir):
         for dataset in os.listdir(osp.join(result_dir, density)):
+            if 'cifar100' in dataset:
+                continue
             for model in os.listdir(osp.join(result_dir, density, dataset)):
                 path = osp.join(result_dir, density, dataset, model)
                 print(f'found {path}')
