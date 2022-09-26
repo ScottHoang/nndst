@@ -70,7 +70,8 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
         graphs = torch.load(file)
         pairs = pair_layers(list(graphs.items()))
         for i, (layer, info) in enumerate(graphs.items()):
-            s_m, sm_ub, r_m, rm_ub, t1m, t2m, ep = info['ram_scores']
+            s_m, sm_ub, r_m, rm_ub, t1m, t2m, ep, random_factor = info[
+                'ram_scores']
             i_sm, i_rm, ism_norm, irm_norm, i_max_ep, i_mean_ep = info['imsg']
             layers_df['prune_type'].append(prune_type)
             layers_df['layer'].append(layer)
@@ -88,6 +89,7 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
             layers_df['ep'].append(ep)
             layers_df['imax_ep'].append(i_max_ep)
             layers_df['i_mean_ep'].append(i_mean_ep)
+            layers_df['random_factor'].append(random_factor)
 
             related_pairs = find_related_pair(layer, pairs)
             if related_pairs:
