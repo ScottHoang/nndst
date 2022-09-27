@@ -62,6 +62,7 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
     params:
         TODO
     """
+    global output_dir
     layers_df = collections.defaultdict(list)
     for file in files:
 
@@ -72,7 +73,11 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
         for i, (layer, info) in enumerate(graphs.items()):
             s_m, sm_ub, r_m, rm_ub, t1m, t2m, ep, random_factor = info[
                 'ram_scores']
-            i_sm, i_rm, ism_norm, irm_norm, i_max_ep, i_mean_ep = info['imsg']
+            imsg = info['imsg']
+            if len(imsg) != 7:
+                imsg = [None] * 7
+            i_sm, i_rm, ism_norm, irm_norm, num_sub_regulars, i_max_ep, i_mean_ep = imsg
+
             layers_df['prune_type'].append(prune_type)
             layers_df['layer'].append(layer)
             layers_df['sparsity'].append(info['sparsity'])
@@ -89,6 +94,7 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
             layers_df['ep'].append(ep)
             layers_df['imax_ep'].append(i_max_ep)
             layers_df['i_mean_ep'].append(i_mean_ep)
+            layers_df['num_sub_regulars'].append(i_mean_ep)
             layers_df['random_factor'].append(random_factor)
 
             related_pairs = find_related_pair(layer, pairs)
@@ -108,6 +114,8 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
     # TODO check this please
     folder = file.split('/')[0:-7]
     folder = '/'.join(folder)
+    if output_dir is not None:
+        folder = output_dir
     name = f"graph_seed-{seed}"
     layers_df = pd.DataFrame.from_dict(layers_df)
     if write:
@@ -121,6 +129,7 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
     params:
         TODO
     """
+    global output_dir
     summary = collections.defaultdict(list)
     for file in files:
         density, dataset, model, prune_type, seed, directory, _ = file.split(
@@ -136,9 +145,12 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
         '/')[-7::]
     folder = file.split('/')[0:-7]
     folder = '/'.join(folder)
+    if output_dir is not None:
+        folder = output_dir
     summary = pd.DataFrame.from_dict(summary)
     name = f"summary-{seed}"
     if write:
+
         save(summary, osp.join(folder, density, dataset, model, 'csv'), name)
     return summary
 
@@ -174,6 +186,10 @@ if __name__ == "__main__":
     arg = sys.argv
     multiprocess = 4
     result_dir = arg[1]  # your top-level result dir
+    if len(arg) == 3:
+        output_dir = arg[2]
+    else:
+        output_dir = None
 
     all_paths = []
     for density in os.listdir(result_dir):
