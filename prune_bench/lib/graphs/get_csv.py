@@ -41,6 +41,19 @@ def get_summary_view(layers: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame.from_dict(summary)
 
 
+def convert_tensor(data: collections.defaultdict):
+    for k, v in data.items():
+        _v = []
+        for i in v:
+            if isinstance(i, torch.Tensor):
+                _v.append(i.tolist())
+            else:
+                _v.append(i)
+
+        data[k] = _v
+    return data
+
+
 def find_related_pair(layer: str, pairs: List[Tuple]):
     """given name of a layer, finds its corresponding pairs
 
@@ -109,6 +122,7 @@ def generate_graph_csv(files: list, write=False) -> pd.DataFrame:
                 layers_df['copeland_score'].append(0)
                 layers_df['compatibility'].append(0)
                 layers_df['overlap_coefs'].append(0)
+    layers_df = convert_tensor(layers_df)
     density, dataset, model, prune_type, seed, directory, _ = file.split(
         '/')[-7::]
     # TODO check this please
@@ -141,6 +155,7 @@ def generate_perf_csv(files: list, write=False) -> pd.DataFrame:
             summary[f'{k}'].extend(df[k].tolist())
         summary['prune_type'].extend([prune_type] * len(df.index))
 
+    df = convert_tensor(df)
     density, dataset, model, prune_type, seed, directory, _ = file.split(
         '/')[-7::]
     folder = file.split('/')[0:-7]
