@@ -37,6 +37,7 @@ def modify_model(func):
                 stripping_skip_connections(model)
             else:
                 print(f"skipping strip skip function for {func.__name__}")
+        return model
 
     return with_modification
 

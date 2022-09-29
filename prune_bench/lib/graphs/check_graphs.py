@@ -110,7 +110,7 @@ def process(path):
 
 if __name__ == "__main__":
     arg = sys.argv
-    multiprocess = 3
+    multiprocess = 1
     result_dir = arg[1]  # your top-level result dir
 
     all_paths = []
