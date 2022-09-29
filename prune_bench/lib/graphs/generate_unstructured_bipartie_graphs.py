@@ -19,6 +19,7 @@ import torch.nn.utils.prune as prune
 import torch_geometric as pyg
 from common_models.models import models
 from common_models.utils import stripping_bias
+from common_models.utils import stripping_skip_connections
 from torch import Tensor
 from torch_geometric.data import Data
 
@@ -240,14 +241,21 @@ def process(path, model, num_classes, dst, seed=1):
     print(f'working on {path}')
     weight = torch.load(path, map_location='cpu')['state_dict']
     has_bias = False
+    has_skip = False
     for k in weight.keys():
         if 'bias' in k:
             has_bias = True
-            break
-    m = models[model](num_classes=num_classes, seed=seed)
-    if not has_bias:
-        print("weight has no bias!")
-        stripping_bias(m, verbose=False)
+        if 'downsample' in k:
+            has_skip = True
+
+    m = models[model](num_classes=num_classes,
+                      seed=seed,
+                      strip_bias=not has_bias,
+                      strip_skip=not has_skip)
+
+    # if not has_bias:
+    # print("weight has no bias!")
+    # stripping_bias(m, verbose=False)
 
     m = masked_parameters(m)
     m.load_state_dict(weight)

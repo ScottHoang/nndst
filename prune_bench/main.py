@@ -23,6 +23,7 @@ from lib import prune
 from lib.common_models.models import models as MODELS
 from lib.common_models.utils import add_log_softmax
 from lib.common_models.utils import stripping_bias
+from lib.common_models.utils import stripping_skip_connections
 from lib.sparselearning.utils import get_cifar100_dataloaders
 from lib.sparselearning.utils import get_cifar10_dataloaders
 from lib.sparselearning.utils import get_mnist_dataloaders
@@ -331,6 +332,10 @@ def main():
         '--strip-bias',
         action='store_true',
     )
+    parser.add_argument(
+        '--strip-skip',
+        action='store_true',
+    )
 
     args = parser.parse_args()
     setup_logger(args)
@@ -366,10 +371,11 @@ def main():
             raise Exception('You need to select a model')
         else:
             cls, cls_args = models[args.model]
-            model = cls(num_classes=outputs, seed=args.seed).cuda()
+            model = cls(num_classes=outputs,
+                        seed=args.seed,
+                        strip_bias=args.strip_bias,
+                        strip_skip=args.strip_skip).cuda()
             add_log_softmax(model)
-            if args.strip_bias:
-                stripping_bias(model)
 
         if args.mgpu:
             print('Using multi gpus')

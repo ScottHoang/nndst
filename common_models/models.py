@@ -3,6 +3,8 @@ import torchvision
 
 from .utils import init
 from .utils import set_seed
+from .utils import stripping_bias
+from .utils import stripping_skip_connections
 
 __all__ = ['resnet18', 'resnet34', 'resnet50', 'vgg16', 'models']
 
@@ -12,10 +14,38 @@ RANDOM_PATH = "/home/dnh754/nndst/common_models/random_weights/"
 os.makedirs(RANDOM_PATH, exist_ok=True)
 
 
+def modify_model(func):
+    """modify the functionality with some argument 
+    stripping away its skip connections/ bias etc
+
+    :func: should be any model generator function
+    :returns: TODO
+
+    """
+
+    def with_modification(*args, **kwargs):
+        model = func(*args, **kwargs)
+
+        strip_bias = kwargs.get('strip_bias', False)
+        strip_skip = kwargs.get('strip_skip', False)
+        if strip_bias:
+            print(f"stripping_bias from {func.__name__}")
+            stripping_bias(model)
+        if strip_skip:
+            if 'resnet' in func.__name__:
+                print(f"stripping_bias from {func.__name__}")
+                stripping_skip_connections(model)
+            else:
+                print(f"skipping strip skip function for {func.__name__}")
+
+    return with_modification
+
+
 def get_name(model_name, num_classes, seed):
     return f"{model_name}_c-{num_classes}_seed-{seed}.path.tar"
 
 
+@modify_model
 def resnet18(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.resnet18(num_classes=n)
@@ -26,6 +56,7 @@ def resnet18(*args, **kwargs):
     return model
 
 
+@modify_model
 def resnet34(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.resnet34(num_classes=n)  #*args, **kwargs)
@@ -36,6 +67,7 @@ def resnet34(*args, **kwargs):
     return model
 
 
+@modify_model
 def resnet50(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.resnet50(num_classes=n)  #*args, **kwargs)
@@ -46,6 +78,7 @@ def resnet50(*args, **kwargs):
     return model
 
 
+@modify_model
 def vgg16(*args, **kwargs):
     n = resolve(args, kwargs)
     model = torchvision.models.vgg16_bn(num_classes=n)  #*args, **kwargs)

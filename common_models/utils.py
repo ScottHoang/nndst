@@ -5,6 +5,49 @@ from typing import List
 import numpy as np
 import torch
 import torch.nn as nn
+from torchvision.models.resnet import BasicBlock
+from torchvision.models.resnet import Bottleneck
+
+
+def basicBlockNoSkipFoward(self, *args, **kwargs):
+    x = args[0]
+    out = self.conv1(x)
+    out = self.bn1(out)
+    out = self.relu(out)
+    out = self.conv2(out)
+    out = self.bn2(out)
+
+    return out
+
+
+def BottleneckNoSkipFoward(self, *args, **kwargs):
+    x = args[0]
+    out = self.conv1(x)
+    out = self.bn1(out)
+    out = self.relu(out)
+
+    out = self.conv2(out)
+    out = self.bn2(out)
+    out = self.relu(out)
+
+    out = self.conv3(out)
+    out = self.bn3(out)
+
+    out = self.relu(out)
+
+    return out
+
+
+def stripping_skip_connections(model):
+    for name, m in model.named_modules():
+        if isinstance(m, BasicBlock):
+            del m.downsample
+            bound_method = basicBlockNoSkipFoward.__get__(m, m.__class__)
+            setattr(m, 'forward', bound_method)
+        elif isinstance(m, Bottleneck):
+            del m.downsample
+            bound_method = BottleneckNoSkipFoward.__get__(m, m.__class__)
+            setattr(m, 'forward', bound_method)
 
 
 def init(model):

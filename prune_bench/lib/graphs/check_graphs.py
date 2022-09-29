@@ -65,9 +65,9 @@ def check(file, dst, seed, model, num_classes):
     if not check_file(tgt):
         generate_unstructured_graphs(file, model, num_classes, tgt, seed)
 
-    # if not check_ram(tgt):
-    # print("generate ram score")
-    generate_ram_score(tgt)
+    if not check_ram(tgt):
+        print("generate ram score")
+        generate_ram_score(tgt)
 
     if not check_others(tgt):
         # print("generate other score")
@@ -116,8 +116,6 @@ if __name__ == "__main__":
     all_paths = []
     for density in os.listdir(result_dir):
         for dataset in os.listdir(osp.join(result_dir, density)):
-            if dataset == 'cifar100':
-                continue
             for model in os.listdir(osp.join(result_dir, density, dataset)):
                 path = osp.join(result_dir, density, dataset, model)
                 print(f'found {path}')
