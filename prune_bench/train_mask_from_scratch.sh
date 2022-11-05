@@ -4,9 +4,9 @@ read -p "Dataset: " d
 read -p "Model: " model
 read -p "seed: " seed
 
-save_dir="results_no_skip"
-prunes="GraSP" #"SNIP GraSP SynFlow ERK Rand iterSNIP" #PHEW"
-density="1.0" # 0.05 0.1 0.2 0.4"
+save_dir="results" #_no_skip"
+prunes="SNIP GraSP SynFlow ERK Rand iterSNIP" #PHEW"
+density="0.01 0.05 0.1 0.2 0.4"
 skip_if_exist=true # if directory exited, skip if true otherwise generate another instance within
 
 for dense in $density; do

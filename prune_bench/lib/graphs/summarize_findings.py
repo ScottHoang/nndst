@@ -22,6 +22,7 @@ def summarize_density(path, global_density, model_type):
             df = pd.read_csv(osp.join(path, csv_file))
             df['rm_norm'] = df['rm'] / df['rm_ub']
             df['sm_norm'] = df['sm'] / df['sm_ub']
+
             prune_types = df.prune_type.unique().tolist()
             metrics = df.columns.tolist()[2::]
             for _type in prune_types:
@@ -105,7 +106,7 @@ def summarize_density(path, global_density, model_type):
 if __name__ == "__main__":
     args = sys.argv
 
-    assert len(args) == 2, "require: [result dir] [save_path]"
+    assert len(args) == 3, "require: [result dir] [save_path]"
     # should be the top dir for our saved diretory
     # above all the density folders
     result_dir = args[1]

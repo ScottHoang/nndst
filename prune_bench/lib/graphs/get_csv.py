@@ -209,8 +209,7 @@ if __name__ == "__main__":
     all_paths = []
     for density in os.listdir(result_dir):
         for dataset in os.listdir(osp.join(result_dir, density)):
-            if 'cifar100' in dataset:
-                continue
+
             for model in os.listdir(osp.join(result_dir, density, dataset)):
                 path = osp.join(result_dir, density, dataset, model)
                 print(f'found {path}')
